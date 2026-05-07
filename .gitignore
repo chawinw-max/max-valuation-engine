@@ -1,0 +1,33 @@
+# Secrets — NEVER commit
+config_local.py
+.env
+.streamlit/secrets.toml
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+venv/
+.venv/
+
+# macOS
+.DS_Store
+
+# IDE
+.vscode/
+.idea/
+
+# Example case data (client-confidential)
+DF117 - FreshSupply (EXAMPLE CASE)/
+pdf_extracts/
+
+# Temp Excel files
+~$*.xlsx
+
+# Claude Code local settings
+.claude/
+.mcp.json
+
+# Megaprompt / internal docs
+MEGAPROMPT_*.md
+ANTIGRAVITY_INSTRUCTIONS.md
