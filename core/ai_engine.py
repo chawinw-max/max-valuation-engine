@@ -45,12 +45,18 @@ def _peer_record(identifier, company_name, country, business_description,
         "scale_warning": None,
     }
 
-# Initialize GenAI Client
-client = genai.Client(api_key=config.GEMINI_API_KEY)
+# Lazy-initialized GenAI Client (st.secrets isn't available at import time on Streamlit Cloud)
+_client = None
+
+def _get_client():
+    global _client
+    if _client is None:
+        _client = genai.Client(api_key=config.GEMINI_API_KEY)
+    return _client
 
 def test_api():
     """Simple test to verify the API key is working with the correct model."""
-    response = client.models.generate_content(
+    response = _get_client().models.generate_content(
         model='gemini-2.5-flash',
         contents='Say "API is working"'
     )
@@ -306,7 +312,7 @@ def extract_financials_and_business_model(company_files, financial_files, availa
     for f in financial_files:
         contents.append(_file_to_part(f))
 
-    response = client.models.generate_content(
+    response = _get_client().models.generate_content(
         model='gemini-2.5-flash',
         contents=contents,
         config=types.GenerateContentConfig(
@@ -574,7 +580,7 @@ def generate_peer_list(client_overview, business_attributes, latest_year_revenue
     """
 
     notes_block = f"\n\nANALYST NOTES (treat as clarification context):\n{notes.strip()}" if notes and notes.strip() else ""
-    response = client.models.generate_content(
+    response = _get_client().models.generate_content(
         model='gemini-2.5-flash',
         contents=[system_prompt, prompt + notes_block],
         config=types.GenerateContentConfig(
@@ -674,7 +680,7 @@ def generate_rejection_rationales(client_overview, not_selected_peers):
     }}
     """
 
-    response = client.models.generate_content(
+    response = _get_client().models.generate_content(
         model='gemini-2.5-flash',
         contents=[prompt],
         config=types.GenerateContentConfig(
@@ -727,7 +733,7 @@ def generate_deep_dive(client_overview, selected_peers, notes: str = ""):
     """
 
     notes_block = f"\n\nANALYST NOTES (treat as clarification context):\n{notes.strip()}" if notes and notes.strip() else ""
-    response = client.models.generate_content(
+    response = _get_client().models.generate_content(
         model='gemini-2.5-flash',
         contents=[prompt + notes_block],
         config=types.GenerateContentConfig(
@@ -794,7 +800,7 @@ def select_precedent_transactions(client_data, parsed_transactions, notes: str =
     """
 
     notes_block = f"\n\nANALYST NOTES (treat as clarification context):\n{notes.strip()}" if notes and notes.strip() else ""
-    response = client.models.generate_content(
+    response = _get_client().models.generate_content(
         model='gemini-2.5-flash',
         contents=[prompt + notes_block],
         config=types.GenerateContentConfig(
@@ -983,7 +989,7 @@ def parse_lseg_transactions_pdf(file_bytes: bytes):
     """
 
     try:
-        response = client.models.generate_content(
+        response = _get_client().models.generate_content(
             model='gemini-2.5-flash',
             contents=[prompt, pdf_part],
             config=types.GenerateContentConfig(
@@ -1126,7 +1132,7 @@ def lookup_ticker_via_gemini(query: str):
     {{"found": false}}
     """
 
-    response = client.models.generate_content(
+    response = _get_client().models.generate_content(
         model='gemini-2.5-flash',
         contents=[prompt],
         config=types.GenerateContentConfig(
@@ -1252,7 +1258,7 @@ RULES:
 - Keep it factual, not promotional
 """
 
-    response = client.models.generate_content(
+    response = _get_client().models.generate_content(
         model='gemini-2.5-flash',
         contents=[prompt],
         config=types.GenerateContentConfig(
@@ -1344,7 +1350,7 @@ Return ONLY valid JSON:
 }}
 """
 
-    response = client.models.generate_content(
+    response = _get_client().models.generate_content(
         model="gemini-2.5-flash",
         contents=[prompt],
         config=types.GenerateContentConfig(
