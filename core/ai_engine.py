@@ -586,24 +586,38 @@ def generate_peer_list(client_overview, business_attributes, latest_year_revenue
         config=types.GenerateContentConfig(
             temperature=0.2,
             response_mime_type="application/json",
-            max_output_tokens=32768,
+            max_output_tokens=65536,
+            thinking_config=types.ThinkingConfig(thinking_budget=8192),
         )
     )
 
     raw_text = response.text or ""
+
+    # Check if output was truncated (finish_reason != STOP)
+    finish_reason = None
     try:
-        return json.loads(_clean_json(raw_text))
+        finish_reason = response.candidates[0].finish_reason
+    except Exception:
+        pass
+
+    try:
+        result = json.loads(_clean_json(raw_text))
     except json.JSONDecodeError as e:
-        finish_reason = None
-        try:
-            finish_reason = response.candidates[0].finish_reason
-        except Exception:
-            pass
         raise RuntimeError(
             f"Peer list JSON parse failed (finish_reason={finish_reason}, "
             f"output_len={len(raw_text)} chars): {e}. "
             f"Last 200 chars of output: ...{raw_text[-200:]!r}"
         ) from e
+
+    # Warn if we got fewer than expected (likely truncated)
+    peers_found = len(result.get('broad_list', []))
+    if peers_found < 15 and finish_reason and str(finish_reason) != "STOP" and str(finish_reason) != "1":
+        raise RuntimeError(
+            f"Peer generation was truncated (finish_reason={finish_reason}, "
+            f"only {peers_found} peers returned). Try again or reduce the prompt."
+        )
+
+    return result
 
 def verify_peer_list(peers: list, progress_callback=None) -> list:
     """
