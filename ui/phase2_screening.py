@@ -233,13 +233,17 @@ def render_phase2():
         st.dataframe(sel_df, hide_index=True, column_config=mcap_col_config, use_container_width=True)
 
         st.markdown("### Not Selected Peers")
-        not_sel_df = pd.DataFrame(st.session_state.final_not_selected_peers)[
-            ['identifier', 'company_name', 'market_cap_thb_m']
-        ]
-        not_sel_df['Reason'] = not_sel_df['identifier'].map(
-            lambda x: st.session_state.rejection_rationales.get(x, "Not a strong fit")
-        )
-        st.dataframe(not_sel_df, hide_index=True, column_config=mcap_col_config, use_container_width=True)
+        not_selected_raw = st.session_state.final_not_selected_peers
+        if not_selected_raw:
+            not_sel_df = pd.DataFrame(not_selected_raw)
+            display_cols = [c for c in ['identifier', 'company_name', 'market_cap_thb_m'] if c in not_sel_df.columns]
+            not_sel_df = not_sel_df[display_cols] if display_cols else not_sel_df
+            not_sel_df['Reason'] = not_sel_df['identifier'].map(
+                lambda x: st.session_state.rejection_rationales.get(x, "Not a strong fit")
+            ) if 'identifier' in not_sel_df.columns else "Not a strong fit"
+            st.dataframe(not_sel_df, hide_index=True, column_config=mcap_col_config, use_container_width=True)
+        else:
+            st.caption("All peers were selected — none rejected.")
 
         st.divider()
         flags = get_phase2_flags(
