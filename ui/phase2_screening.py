@@ -97,47 +97,101 @@ def render_phase2():
             st.session_state.peer_df_base = st.session_state.peer_df.copy()
 
         with st.expander("Add companies manually"):
-            with st.form("add_peer_form"):
-                st.write("Enter a ticker symbol or company name — the app will look it up and auto-fill all fields.")
-                new_query = st.text_input("Ticker or Company Name (e.g., SUN.BK, Sunsweet, Chiangmai Frozen)")
-                submitted = st.form_submit_button("Look up & Add")
+            tab_lookup, tab_manual = st.tabs(["🔍 Look up by ticker/name", "✏️ Enter manually"])
 
-            if submitted:
-                query_input = (new_query or "").strip()
-                if not query_input:
-                    st.error("Please enter a ticker or company name.")
-                else:
-                    with st.spinner(f"Looking up '{query_input}'..."):
-                        record, source = lookup_ticker(query_input)
+            with tab_lookup:
+                with st.form("add_peer_form"):
+                    st.write("Enter a ticker symbol or company name — the app will look it up and auto-fill all fields.")
+                    new_query = st.text_input("Ticker or Company Name (e.g., SUN.BK, Sunsweet, Chiangmai Frozen)")
+                    submitted = st.form_submit_button("Look up & Add")
 
-                    if record is None:
-                        st.error(
-                            f"Could not find '{query_input}' in Yahoo Finance or Gemini. "
-                            "Try the exact ticker (Thai stocks use the `.BK` suffix, e.g., SUN.BK)."
-                        )
+                if submitted:
+                    query_input = (new_query or "").strip()
+                    if not query_input:
+                        st.error("Please enter a ticker or company name.")
                     else:
-                        existing = st.session_state.peer_df_base['identifier'].astype(str).str.upper().tolist()
-                        if record['identifier'].upper() in existing:
+                        with st.spinner(f"Looking up '{query_input}'..."):
+                            record, source = lookup_ticker(query_input)
+
+                        if record is None:
                             st.warning(
-                                f"{record['identifier']} ({record['company_name']}) is already in the peer list."
+                                f"Could not find '{query_input}' in Yahoo Finance or Gemini. "
+                                "The company may be delisted or not covered. "
+                                "Use the **Enter manually** tab to add it with your own details."
                             )
                         else:
-                            record['Selected'] = True
+                            existing = st.session_state.peer_df_base['identifier'].astype(str).str.upper().tolist()
+                            if record['identifier'].upper() in existing:
+                                st.warning(
+                                    f"{record['identifier']} ({record['company_name']}) is already in the peer list."
+                                )
+                            else:
+                                record['Selected'] = True
+                                base = st.session_state.peer_df_base
+                                new_row_df = pd.DataFrame([record])
+                                st.session_state.peer_df_base = pd.concat(
+                                    [new_row_df, base],
+                                    ignore_index=True,
+                                )[base.columns.tolist()]
+                                if source == "yfinance":
+                                    st.success(
+                                        f"Added {record['identifier']} — {record['company_name']} (Yahoo Finance)"
+                                    )
+                                else:
+                                    st.warning(
+                                        f"Added {record['identifier']} — {record['company_name']} "
+                                        "(AI-sourced from Gemini — please verify accuracy)"
+                                    )
+                                st.rerun()
+
+            with tab_manual:
+                st.caption("For delisted companies or those not on Yahoo Finance. Fill in the details yourself.")
+                with st.form("manual_peer_form"):
+                    m_col1, m_col2 = st.columns(2)
+                    with m_col1:
+                        m_ticker = st.text_input("Ticker *", placeholder="e.g., PSQ.AX")
+                        m_name = st.text_input("Company Name *", placeholder="e.g., Pacific Smiles Group Limited")
+                        m_country = st.text_input("Country *", placeholder="e.g., Australia")
+                    with m_col2:
+                        m_industry = st.text_input("Industry / TRBC Activity", placeholder="e.g., Dental Services")
+                        m_mcap = st.number_input("Market Cap (THB M)", value=0, min_value=0, help="Leave 0 if unknown")
+                        m_ring = st.selectbox("Ring", options=[1, 2, 3], index=1)
+                    m_desc = st.text_area("Business Description", placeholder="2-3 sentences about what the company does", height=80)
+                    m_submitted = st.form_submit_button("Add to Peer List")
+
+                if m_submitted:
+                    if not m_ticker.strip() or not m_name.strip() or not m_country.strip():
+                        st.error("Ticker, Company Name, and Country are required.")
+                    else:
+                        existing = st.session_state.peer_df_base['identifier'].astype(str).str.upper().tolist()
+                        if m_ticker.strip().upper() in existing:
+                            st.warning(f"{m_ticker.strip().upper()} is already in the peer list.")
+                        else:
+                            from core.ai_engine import _score_country
+                            geo = _score_country(m_country.strip())
+                            manual_record = {
+                                'identifier': m_ticker.strip().upper(),
+                                'company_name': m_name.strip(),
+                                'trbc_activity': m_industry.strip() or "Manually Added",
+                                'country': m_country.strip(),
+                                'business_description': m_desc.strip(),
+                                'market_cap_thb_m': m_mcap if m_mcap > 0 else None,
+                                'ebitda_positive': True,
+                                'fit_rank': 2,
+                                'geography_score': geo,
+                                'ring': m_ring,
+                                'ring_justification': "Manually added by analyst.",
+                                'scale_warning': None,
+                                'verified': True,
+                                'Selected': True,
+                            }
                             base = st.session_state.peer_df_base
-                            new_row_df = pd.DataFrame([record])
+                            new_row_df = pd.DataFrame([manual_record])
                             st.session_state.peer_df_base = pd.concat(
                                 [new_row_df, base],
                                 ignore_index=True,
                             )[base.columns.tolist()]
-                            if source == "yfinance":
-                                st.success(
-                                    f"Added {record['identifier']} — {record['company_name']} (Yahoo Finance)"
-                                )
-                            else:
-                                st.warning(
-                                    f"Added {record['identifier']} — {record['company_name']} "
-                                    "(AI-sourced from Gemini — please verify accuracy)"
-                                )
+                            st.success(f"Added {manual_record['identifier']} — {manual_record['company_name']} (manual entry)")
                             st.rerun()
 
         edited_df = st.data_editor(
