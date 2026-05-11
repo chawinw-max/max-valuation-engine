@@ -609,12 +609,27 @@ def generate_peer_list(client_overview, business_attributes, latest_year_revenue
             f"Last 200 chars of output: ...{raw_text[-200:]!r}"
         ) from e
 
-    # Warn if we got fewer than expected (likely truncated)
+    # Handle empty or missing broad_list
     peers_found = len(result.get('broad_list', []))
-    if peers_found < 15 and finish_reason and str(finish_reason) != "STOP" and str(finish_reason) != "1":
+    if peers_found == 0:
+        # Gemini returned valid JSON but no peers — check if the list is nested differently
+        # Some responses wrap it as {"peers": [...]} or just a raw list
+        if isinstance(result, list):
+            result = {"broad_list": result}
+            peers_found = len(result["broad_list"])
+        else:
+            # Try common alternative keys
+            for alt_key in ["peers", "companies", "comparable_companies", "results"]:
+                if alt_key in result and isinstance(result[alt_key], list) and result[alt_key]:
+                    result["broad_list"] = result[alt_key]
+                    peers_found = len(result["broad_list"])
+                    break
+
+    if peers_found == 0:
         raise RuntimeError(
-            f"Peer generation was truncated (finish_reason={finish_reason}, "
-            f"only {peers_found} peers returned). Try again or reduce the prompt."
+            f"Gemini returned 0 peers. This may happen with very niche businesses. "
+            f"Try broadening the sub-sector in analyst notes (e.g., 'expand to healthcare services, "
+            f"outpatient clinics, aesthetics chains in ASEAN')."
         )
 
     return result
