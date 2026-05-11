@@ -33,7 +33,7 @@ def render_phase3():
                 failed_files = []
                 for f in lseg_files:
                     f_bytes = f.read()
-                    data = parse_lseg_peer_data(f_bytes)
+                    data = parse_lseg_peer_data(f_bytes, filename=f.name)
                     if "error" in data:
                         failed_files.append((f.name, data["error"]))
                     else:

@@ -290,7 +290,7 @@ def get_phase3_flags(
 ) -> List[Flag]:
     flags: List[Flag] = []
 
-    # Build normalized LSEG lookup
+    # Build normalized LSEG lookup — match by LSEG identifier, normalized ticker, AND filename
     lseg_lookup: dict = {}
     for p in (lseg_parsed_peers or []):
         raw = (p.get("identifier") or "").upper()
@@ -299,6 +299,10 @@ def get_phase3_flags(
         norm = _norm_ticker(raw)
         if norm and norm != raw:
             lseg_lookup[norm] = p
+        # Also index by filename-derived ticker (e.g., "D.BK" from "D.BK.xlsx")
+        fn_ticker = (p.get("filename_ticker") or "").upper()
+        if fn_ticker and fn_ticker not in lseg_lookup:
+            lseg_lookup[fn_ticker] = p
 
     for peer in (selected_peers or []):
         ticker  = (peer.get("identifier") or "").upper()

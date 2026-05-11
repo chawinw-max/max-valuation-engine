@@ -69,7 +69,7 @@ def _extract_from_csv(file_bytes):
     except Exception as e:
         return f"[Error extracting CSV: {str(e)}]"
 
-def parse_lseg_peer_data(file_bytes):
+def parse_lseg_peer_data(file_bytes, filename: str = ""):
     """Parses an LSEG Valuation export file to extract yearly multiples.
     Dynamically reads the year header row so files with different year coverage
     (e.g. missing 2022) parse correctly.
@@ -135,8 +135,17 @@ def parse_lseg_peer_data(file_bytes):
                     out[year] = safe_val(row.iloc[col_i])
             return out
 
+        # Derive a ticker from the filename (e.g., "D.BK.xlsx" → "D.BK")
+        filename_ticker = ""
+        if filename:
+            import os
+            base = os.path.splitext(filename)[0]  # "D.BK.xlsx" → "D.BK"
+            if base:
+                filename_ticker = base.strip().upper()
+
         return {
             "identifier": ticker,
+            "filename_ticker": filename_ticker,
             "company_name": company_name,
             "ev_ebitda": get_yearly_data(ev_ebitda_idx),
             "pe": get_yearly_data(pe_idx),

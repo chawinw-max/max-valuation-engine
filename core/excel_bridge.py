@@ -53,6 +53,10 @@ def _build_lseg_lookup(lseg_parsed_peers: list) -> dict:
         norm_cname = _normalize_company_name(p.get("company_name") or "")
         if norm_cname and f"__name__{norm_cname}" not in lookup:
             lookup[f"__name__{norm_cname}"] = p
+        # Also index by filename-derived ticker (e.g., "D.BK" from "D.BK.xlsx")
+        fn_ticker = (p.get("filename_ticker") or "").upper()
+        if fn_ticker and fn_ticker not in lookup:
+            lookup[fn_ticker] = p
     return lookup
 
 
