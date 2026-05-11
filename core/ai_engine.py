@@ -665,11 +665,12 @@ def verify_peer_list(peers: list, progress_callback=None) -> list:
                     record['trbc_activity'] = industry
                 return record
 
+        # Could not verify — mark as unverified but DON'T discard
         record['verified'] = False
         return record
 
     total = len(peers)
-    with ThreadPoolExecutor(max_workers=8) as executor:
+    with ThreadPoolExecutor(max_workers=4) as executor:  # Reduced from 8 to avoid rate limits
         futures = {executor.submit(_verify_one, p): i for i, p in enumerate(peers)}
         results = [None] * total
         done_count = 0

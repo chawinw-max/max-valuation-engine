@@ -48,13 +48,14 @@ def render_phase2():
                 progress_bar.empty()
 
                 verified_count = sum(1 for p in verified_peers if p.get('verified'))
-                removed = [p for p in verified_peers if not p.get('verified')]
-                kept = [p for p in verified_peers if p.get('verified')]
+                unverified = [p for p in verified_peers if not p.get('verified')]
 
-                st.session_state.peer_list = kept
+                # Keep ALL peers (verified + unverified) — let the analyst decide
+                st.session_state.peer_list = verified_peers
                 st.session_state._peer_verification_summary = {
                     'verified': verified_count,
-                    'removed': [p.get('identifier', '?') for p in removed],
+                    'total': len(verified_peers),
+                    'unverified': [p.get('identifier', '?') for p in unverified],
                 }
                 st.rerun()
             except Exception as e:
@@ -79,11 +80,23 @@ def render_phase2():
 
         vsummary = st.session_state.pop('_peer_verification_summary', None)
         if vsummary:
-            st.success(f"Verified **{vsummary['verified']}** peers via Yahoo Finance.")
-            if vsummary['removed']:
+            v = vsummary['verified']
+            t = vsummary.get('total', v)
+            if v == t:
+                st.success(f"Verified all **{v}** peers via Yahoo Finance.")
+            elif v > 0:
+                st.success(f"Verified **{v}/{t}** peers via Yahoo Finance.")
+                st.info(
+                    f"**{t - v}** ticker(s) could not be verified (may be delisted, "
+                    f"misspelled, or Yahoo Finance unavailable): "
+                    + ", ".join(vsummary.get('unverified', []))
+                    + "\n\nThey are kept in the list — review and remove any that are incorrect."
+                )
+            else:
                 st.warning(
-                    f"Removed {len(vsummary['removed'])} unverified ticker(s): "
-                    + ", ".join(vsummary['removed'])
+                    f"Could not verify any tickers via Yahoo Finance (0/{t}). "
+                    "This may be due to rate limiting on the cloud server. "
+                    "All AI-generated peers are kept — please verify them manually."
                 )
 
         if st.button("← Re-generate Peer List"):
