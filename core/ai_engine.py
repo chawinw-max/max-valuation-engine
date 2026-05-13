@@ -168,11 +168,24 @@ def extract_financials_and_business_model(company_files, financial_files, availa
     2. COGS vs GROSS PROFIT — Some Thai P&L statements show กำไรขั้นต้น (Gross Profit) directly
        instead of ต้นทุนขาย (COGS). If only Gross Profit is shown, BACK-CALCULATE:
        cost_of_goods_sold = Total Revenue − Gross Profit
+       IMPORTANT: Mark in _verification that COGS was "derived" (not directly extracted).
     3. D&A PLACEMENT — D&A goes in Row 26 (below EBITDA), NOT inside admin expenses.
        If the source buries D&A inside admin or operating expenses, you must SEPARATE it:
        - Extract the D&A amount into depreciation_amortization
        - Subtract that amount from administrative_expenses to avoid double-counting
        If D&A cannot be separated (not disclosed), set depreciation_amortization = null
+
+       ⚠️  CRITICAL D&A + DERIVED COGS INTERACTION:
+       If COGS was derived using Rule #2 (back-calculated from Gross Profit), the derived
+       COGS already embeds any D&A that the source included in its Cost of Sales (e.g.,
+       ค่าเสื่อมราคา-เครื่องมือทันตกรรม from Note 10). You CANNOT separate that D&A out of
+       the derived COGS because the derivation was: COGS = Revenue − Gross Profit.
+       In this situation:
+       - Still separate D&A from administrative_expenses (subtract from admin, add to D&A)
+       - Do NOT add COGS-embedded D&A to the depreciation_amortization line
+       - The depreciation_amortization value should ONLY contain D&A extracted from admin/opex
+       - If no D&A can be separated from admin, set depreciation_amortization = null
+       - Note in _verification which D&A components are embedded vs separated
     4. COMBINED SG&A — If the source combines Selling + Admin into one line:
        - Put the full amount in administrative_expenses
        - Set sales_expenses = 0
@@ -1265,7 +1278,11 @@ For each year:
 - If SG&A items (credit card fees, social security, parking, phone, consumables) were classified here, list them
 
 ## 4. Below-EBITDA Items
-- D&A: where it came from, or why it's null
+- D&A: where it came from, or why it's null. IMPORTANT: If COGS was derived (back-calculated
+  from Revenue − Gross Profit), note that the derived COGS already embeds any D&A that was
+  part of the source's Cost of Sales. The D&A line should ONLY contain D&A separated from
+  admin/opex — NOT D&A embedded in derived COGS. If both admin-D&A and COGS-D&A were
+  combined into the D&A line, flag this as a potential double-counting issue.
 - Interest: where it came from, or why it's null
 - Tax: where it came from, or why it's null
 
