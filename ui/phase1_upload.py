@@ -14,7 +14,7 @@ def render_phase1():
         st.write("Meeting notes, company profiles, business descriptions, deal memos")
         company_files = st.file_uploader(
             "Upload Company Docs", 
-            type=["pdf", "docx", "xlsx", "csv", "png", "jpg", "jpeg"], 
+            type=["pdf", "docx", "xlsx", "xls", "csv", "png", "jpg", "jpeg"],
             accept_multiple_files=True,
             key="company_docs"
         )
@@ -27,7 +27,7 @@ def render_phase1():
         st.write("Income statements, P&L reports, audited financials (Thai or English)")
         financial_files = st.file_uploader(
             "Upload Financial Docs", 
-            type=["pdf", "docx", "xlsx", "csv", "png", "jpg", "jpeg"], 
+            type=["pdf", "docx", "xlsx", "xls", "csv", "png", "jpg", "jpeg"],
             accept_multiple_files=True,
             key="financial_docs"
         )

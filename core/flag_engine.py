@@ -283,6 +283,20 @@ def _norm_ticker(ticker: str) -> str:
     return (m.group(1) + m.group(3)).upper() if m else ticker.upper()
 
 
+_CORP_SUFFIX_RE = re.compile(
+    r'\b(public\s+company\s+limited|joint\s+stock\s+company|berhad|bhd|pcl'
+    r'|co\.?,?\s*ltd\.?|limited|ltd\.?|inc\.?|corp\.?|plc\.?|s\.?a\.?|n\.?v\.?'
+    r'|tbk\.?|pte\.?|jsc|pt)\b',
+    re.IGNORECASE,
+)
+
+
+def _norm_company_name(name: str) -> str:
+    """Strip legal suffixes and punctuation for fuzzy matching."""
+    n = _CORP_SUFFIX_RE.sub('', name.lower())
+    return ' '.join(re.sub(r'[^a-z0-9\s]', ' ', n).split())
+
+
 def get_phase3_flags(
     selected_peers: list,
     lseg_parsed_peers: list,
@@ -290,7 +304,8 @@ def get_phase3_flags(
 ) -> List[Flag]:
     flags: List[Flag] = []
 
-    # Build normalized LSEG lookup — match by LSEG identifier, normalized ticker, AND filename
+    # Build normalized LSEG lookup — match by LSEG identifier, normalized ticker,
+    # filename-derived ticker, AND company name (from file content + filename)
     lseg_lookup: dict = {}
     for p in (lseg_parsed_peers or []):
         raw = (p.get("identifier") or "").upper()
@@ -299,15 +314,66 @@ def get_phase3_flags(
         norm = _norm_ticker(raw)
         if norm and norm != raw:
             lseg_lookup[norm] = p
-        # Also index by filename-derived ticker (e.g., "D.BK" from "D.BK.xlsx")
+        # Index by filename-derived ticker (e.g., "D.BK" from "D.BK.xlsx")
         fn_ticker = (p.get("filename_ticker") or "").upper()
         if fn_ticker and fn_ticker not in lseg_lookup:
             lseg_lookup[fn_ticker] = p
+        # Index by company name from inside the LSEG file
+        cname = (p.get("company_name") or "").strip().lower()
+        if cname:
+            lseg_lookup[f"__name__{cname}"] = p
+        norm_cname = _norm_company_name(p.get("company_name") or "")
+        if norm_cname:
+            lseg_lookup[f"__name__{norm_cname}"] = p
+        # Index by filename as company name (e.g., "Wilmar International Ltd.xlsx" → "wilmar international")
+        fn_raw = p.get("filename_raw") or p.get("filename_ticker") or ""
+        if fn_raw:
+            # Only use as company name if it looks like a name (has spaces), not a ticker
+            if ' ' in fn_raw or len(fn_raw) > 10:
+                fn_name_norm = _norm_company_name(fn_raw)
+                if fn_name_norm and f"__name__{fn_name_norm}" not in lseg_lookup:
+                    lseg_lookup[f"__name__{fn_name_norm}"] = p
+
+    # Collect all normalized LSEG names for fuzzy fallback
+    _lseg_name_entries = []
+    for p in (lseg_parsed_peers or []):
+        for src in [p.get("company_name", ""), p.get("filename_raw", "")]:
+            norm = _norm_company_name(src)
+            if norm:
+                words = set(norm.split())
+                _lseg_name_entries.append((words, norm, p))
+
+    def _fuzzy_name_match(peer_company):
+        """Last-resort: match if peer and LSEG share a distinctive word (3+ chars)."""
+        peer_norm = _norm_company_name(peer_company)
+        if not peer_norm:
+            return None
+        peer_words = {w for w in peer_norm.split() if len(w) >= 3}
+        best, best_score = None, 0
+        for lseg_words, _, lseg_p in _lseg_name_entries:
+            sig_words = {w for w in lseg_words if len(w) >= 3}
+            overlap = peer_words & sig_words
+            if overlap and len(overlap) >= 1:
+                # Score by overlap ratio relative to the smaller set
+                score = len(overlap) / min(len(peer_words), len(sig_words))
+                if score > best_score:
+                    best_score = score
+                    best = lseg_p
+        # Require at least one shared significant word
+        return best if best_score > 0 else None
 
     for peer in (selected_peers or []):
         ticker  = (peer.get("identifier") or "").upper()
         company = peer.get("company_name", "") or ""
-        lseg    = lseg_lookup.get(ticker, {})
+        # Try matching: exact ticker → normalized ticker → exact company name → normalized company name → fuzzy
+        lseg = (
+            lseg_lookup.get(ticker)
+            or lseg_lookup.get(_norm_ticker(ticker))
+            or lseg_lookup.get(f"__name__{company.strip().lower()}")
+            or lseg_lookup.get(f"__name__{_norm_company_name(company)}")
+            or _fuzzy_name_match(company)
+            or {}
+        )
 
         # No LSEG file at all
         if not lseg:

@@ -137,15 +137,18 @@ def parse_lseg_peer_data(file_bytes, filename: str = ""):
 
         # Derive a ticker from the filename (e.g., "D.BK.xlsx" → "D.BK")
         filename_ticker = ""
+        filename_raw = ""
         if filename:
             import os
             base = os.path.splitext(filename)[0]  # "D.BK.xlsx" → "D.BK"
             if base:
                 filename_ticker = base.strip().upper()
+                filename_raw = base.strip()
 
         return {
             "identifier": ticker,
             "filename_ticker": filename_ticker,
+            "filename_raw": filename_raw,
             "company_name": company_name,
             "ev_ebitda": get_yearly_data(ev_ebitda_idx),
             "pe": get_yearly_data(pe_idx),

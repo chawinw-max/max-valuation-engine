@@ -1,7 +1,7 @@
 import streamlit as st
 
 st.set_page_config(
-    page_title="MAX Solutions - Comparable Valuation App",
+    page_title="MAX Solutions Valuation Engine",
     page_icon="📊",
     layout="wide"
 )
@@ -48,6 +48,19 @@ def _has_downstream_data(target_phase: int) -> bool:
 
 
 def main():
+    # ── Tool selector ────────────────────────────────────────────────────────
+    tool = st.sidebar.radio(
+        "Select Tool",
+        ["Comparable Valuation", "Financial Consolidation"],
+        key="active_tool",
+    )
+
+    if tool == "Financial Consolidation":
+        st.title("MAX Solutions — Financial Consolidation")
+        from ui.consolidation import render_consolidation
+        render_consolidation()
+        return
+
     st.title("MAX Solutions Valuation Engine")
 
     phases = [

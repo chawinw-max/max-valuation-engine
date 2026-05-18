@@ -114,11 +114,19 @@ def extract_financials_and_business_model(company_files, financial_files, availa
     - Some P&L statements combine "Sales and Administrative Expenses" (ค่าใช้จ่ายในการขายและบริหาร) — split proportionally or assign to Administrative and note it.
     """
 
+    notes_block = ""
+    if notes and notes.strip():
+        notes_block = f"""
+    ⚠️ ANALYST NOTES — READ AND APPLY THESE INSTRUCTIONS FIRST:
+    {notes.strip()}
+    ───────────────────────────────────────────────────────────
+"""
+
     prompt = f"""
     You are given two groups of documents (images, PDFs, and text):
 
     AVAILABLE YEARS: {available_years}
-
+    {notes_block}
     TASK 1 — From the COMPANY INFORMATION DOCUMENTS, extract:
     1. deal_code: The deal code (e.g., "DF-117"). If not found, use "DF-XXX".
     2. client_name: The client company name.
@@ -312,10 +320,9 @@ def extract_financials_and_business_model(company_files, financial_files, availa
     }}
     """
     
-    notes_block = f"\n\nANALYST NOTES (treat as clarification context):\n{notes.strip()}" if notes and notes.strip() else ""
     contents = [
         system_prompt,
-        prompt + notes_block,
+        prompt,
         "=== COMPANY INFORMATION DOCUMENTS ==="
     ]
     for f in company_files:
@@ -516,6 +523,14 @@ def generate_peer_list(client_overview, business_attributes, latest_year_revenue
         lines.append("    Prefer peers with EBITDA margins within ±15pp of target.")
         financial_profile = "\n".join(lines)
 
+    notes_block = ""
+    if notes and notes.strip():
+        notes_block = f"""
+    ⚠️ ANALYST NOTES — READ AND APPLY THESE INSTRUCTIONS FIRST:
+    {notes.strip()}
+    ───────────────────────────────────────────────────────────
+"""
+
     prompt = f"""
     ## TARGET COMPANY PROFILE
     {client_overview}
@@ -527,7 +542,7 @@ def generate_peer_list(client_overview, business_attributes, latest_year_revenue
     - Geography: {business_attributes.get('operating_geography', '')}
     - Business model: {business_attributes.get('model_type', '')}
     {financial_profile}
-
+    {notes_block}
     ## MATCHING RULES — STRICT HIERARCHY
 
     ### Rule 1: Sub-Sector Specificity (MOST IMPORTANT)
@@ -592,10 +607,9 @@ def generate_peer_list(client_overview, business_attributes, latest_year_revenue
     }}
     """
 
-    notes_block = f"\n\nANALYST NOTES (treat as clarification context):\n{notes.strip()}" if notes and notes.strip() else ""
     response = _get_client().models.generate_content(
         model='gemini-2.5-flash',
-        contents=[system_prompt, prompt + notes_block],
+        contents=[system_prompt, prompt],
         config=types.GenerateContentConfig(
             temperature=0.2,
             response_mime_type="application/json",
@@ -740,9 +754,17 @@ def generate_deep_dive(client_overview, selected_peers, notes: str = ""):
     Phase 3 AI logic: Generates qualitative and quantitative comparisons for selected peers.
     """
     peers_json = json.dumps(selected_peers, indent=2)
+    notes_block = ""
+    if notes and notes.strip():
+        notes_block = f"""
+    ⚠️ ANALYST NOTES — READ AND APPLY THESE INSTRUCTIONS FIRST:
+    {notes.strip()}
+    ───────────────────────────────────────────────────────────
+"""
+
     prompt = f"""
     TARGET COMPANY: {client_overview}
-    
+    {notes_block}
     For each selected peer, write a qualitative comparison to the target company.
     Then, provide Revenue and EBITDA for 2023, 2024, and 2025.
     All figures in MILLIONS THB. Convert from other currencies if needed, stating the rate.
@@ -775,10 +797,9 @@ def generate_deep_dive(client_overview, selected_peers, notes: str = ""):
     }}
     """
 
-    notes_block = f"\n\nANALYST NOTES (treat as clarification context):\n{notes.strip()}" if notes and notes.strip() else ""
     response = _get_client().models.generate_content(
         model='gemini-2.5-flash',
-        contents=[prompt + notes_block],
+        contents=[prompt],
         config=types.GenerateContentConfig(
             temperature=0.0,
             response_mime_type="application/json",
@@ -801,6 +822,14 @@ def select_precedent_transactions(client_data, parsed_transactions, notes: str =
     # We slice to first 50 transactions to avoid context length explosion
     tx_json = json.dumps(parsed_transactions[:50], indent=2)
     
+    notes_block = ""
+    if notes and notes.strip():
+        notes_block = f"""
+    ⚠️ ANALYST NOTES — READ AND APPLY THESE INSTRUCTIONS FIRST:
+    {notes.strip()}
+    ───────────────────────────────────────────────────────────
+"""
+
     prompt = f"""
     You are selecting the most relevant precedent M&A transactions for a comparable valuation.
 
@@ -808,7 +837,7 @@ def select_precedent_transactions(client_data, parsed_transactions, notes: str =
     {client_overview}
     Sub-sector: {specific_subsector}
     Geography: {operating_geography}
-
+    {notes_block}
     Below is a list of M&A transactions from LSEG. Select the TOP 10 most relevant transactions.
 
     SELECTION CRITERIA (in priority order):
@@ -842,10 +871,9 @@ def select_precedent_transactions(client_data, parsed_transactions, notes: str =
     }}
     """
 
-    notes_block = f"\n\nANALYST NOTES (treat as clarification context):\n{notes.strip()}" if notes and notes.strip() else ""
     response = _get_client().models.generate_content(
         model='gemini-2.5-flash',
-        contents=[prompt + notes_block],
+        contents=[prompt],
         config=types.GenerateContentConfig(
             temperature=0.0,
             response_mime_type="application/json",

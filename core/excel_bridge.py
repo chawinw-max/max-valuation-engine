@@ -57,7 +57,33 @@ def _build_lseg_lookup(lseg_parsed_peers: list) -> dict:
         fn_ticker = (p.get("filename_ticker") or "").upper()
         if fn_ticker and fn_ticker not in lookup:
             lookup[fn_ticker] = p
+        # Index by filename as company name (e.g., "Wilmar International Ltd.xlsx")
+        fn_raw = p.get("filename_raw") or ""
+        if fn_raw and (' ' in fn_raw or len(fn_raw) > 10):
+            fn_name_norm = _normalize_company_name(fn_raw)
+            if fn_name_norm and f"__name__{fn_name_norm}" not in lookup:
+                lookup[f"__name__{fn_name_norm}"] = p
     return lookup
+
+
+def _fuzzy_name_match(lseg_by_ticker: dict, peer_company: str):
+    """Last-resort: match if peer and LSEG share a distinctive word (3+ chars)."""
+    peer_norm = _normalize_company_name(peer_company or "")
+    if not peer_norm:
+        return None
+    peer_words = {w for w in peer_norm.split() if len(w) >= 3}
+    best, best_score = None, 0
+    for key, p in lseg_by_ticker.items():
+        if not key.startswith("__name__"):
+            continue
+        lseg_words = {w for w in key[8:].split() if len(w) >= 3}
+        overlap = peer_words & lseg_words
+        if overlap:
+            score = len(overlap) / min(len(peer_words), len(lseg_words))
+            if score > best_score:
+                best_score = score
+                best = p
+    return best if best_score > 0 else None
 
 
 def _lseg_peer(lseg_by_ticker: dict, ticker: str, company_name: str) -> dict:
@@ -68,6 +94,7 @@ def _lseg_peer(lseg_by_ticker: dict, ticker: str, company_name: str) -> dict:
         or lseg_by_ticker.get(_normalize_ticker(t))
         or lseg_by_ticker.get(f"__name__{(company_name or '').strip().lower()}")
         or lseg_by_ticker.get(f"__name__{_normalize_company_name(company_name or '')}")
+        or _fuzzy_name_match(lseg_by_ticker, company_name)
         or {}
     )
 

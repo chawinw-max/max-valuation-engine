@@ -21,7 +21,7 @@ def render_phase3():
     
     lseg_files = st.file_uploader(
         "Upload LSEG Peer Files",
-        type=["xlsx", "xlsm"],
+        type=["xlsx", "xls", "xlsm"],
         accept_multiple_files=True,
         key="lseg_peer_files"
     )
@@ -108,8 +108,8 @@ def render_phase3():
             st.write("Upload the single LSEG Precedent M&A Excel file to extract top 10 relevant deals.")
             
             tx_file = st.file_uploader(
-                "Upload LSEG Precedent Transactions (.xlsx, .xlsm, or .pdf)",
-                type=["xlsx", "xlsm", "pdf"],
+                "Upload LSEG Precedent Transactions (.xlsx, .xls, .xlsm, or .pdf)",
+                type=["xlsx", "xls", "xlsm", "pdf"],
                 key="lseg_tx_file"
             )
 

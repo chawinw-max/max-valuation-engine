@@ -263,6 +263,12 @@ def render_phase2():
             disabled=["identifier", "company_name", "trbc_activity", "country", "business_description", "market_cap_thb_m"]
         )
         
+        col_sel1, col_sel2 = st.columns([1, 5])
+        with col_sel1:
+            if st.button("Select All"):
+                st.session_state.final_df_base['Selected'] = True
+                st.rerun()
+
         final_count = edited_final['Selected'].sum()
         st.write(f"**Final Selected: {final_count}** (Need 5 to 7)")
         
