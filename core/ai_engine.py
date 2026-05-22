@@ -840,7 +840,7 @@ def select_precedent_transactions(client_data, parsed_transactions, notes: str =
     deal_code = client_data.get('deal_code', 'Target')
     
     # We slice to first 50 transactions to avoid context length explosion
-    tx_json = json.dumps(parsed_transactions[:50], indent=2)
+    tx_json = json.dumps(parsed_transactions[:50], indent=2, default=str)
     
     notes_block = ""
     if notes and notes.strip():
