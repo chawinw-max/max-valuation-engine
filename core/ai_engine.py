@@ -413,7 +413,27 @@ def _post_process_financials(result: dict, available_years: list):
 
             gap = extracted_total - implied_total_expenses
             gap_pct = abs(gap) / total_rev * 100
-            if gap_pct > 2:
+
+            # Check if the gap is explained by D&A (EBIT-first P&L format).
+            # Some source P&Ls compute EBIT first (GP − SG&A) and only use D&A
+            # as an add-back for EBITDA — D&A never appears in the
+            # Revenue→Net Profit expense chain.  In that case the gap will
+            # match D&A almost exactly and is NOT double-counting.
+            da_val = (fin.get('depreciation_amortization') or {}).get(y) or 0
+            gap_explained_by_da = (
+                da_val > 0
+                and abs(gap - da_val) / total_rev < 0.005  # within 0.5% of revenue
+            )
+
+            if gap_explained_by_da:
+                # Not an error — just a structural difference.  Leave a note
+                # so the analyst knows, but don't flag it as an issue.
+                warnings.append(
+                    f"{y}: Source P&L uses EBIT-first format — D&A ({da_val:,.0f}) is an "
+                    f"EBITDA add-back, not a direct expense line.  Cross-check OK after "
+                    f"accounting for structure."
+                )
+            elif gap_pct > 2:
                 warnings.append(
                     f"{y}: Extracted expenses ({extracted_total:,.0f}) exceed implied expenses "
                     f"({implied_total_expenses:,.0f}) by {gap:,.0f} THB ({gap_pct:.1f}% of revenue). "
