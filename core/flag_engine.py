@@ -193,7 +193,20 @@ def get_phase1_flags(phase1_data: dict, available_years: list) -> List[Flag]:
             )
             gap = extracted_expenses - implied_expenses
             gap_pct = abs(gap) / total_rev * 100
-            if gap_pct > 2:
+
+            # Detect EBIT-first P&L format: gap matches D&A exactly
+            da_val = (financials.get("depreciation_amortization") or {}).get(y) or 0
+            gap_is_da = da_val > 0 and abs(gap - da_val) / total_rev < 0.005
+
+            if gap_is_da:
+                flags.append(Flag(
+                    FlagLevel.INFO, f"EBIT_FIRST_FORMAT_{year}",
+                    f"Source P&L uses EBIT-first format in {year} — D&A ({da_val:,.0f}) is an add-back",
+                    f"D&A is not in the Revenue→Net Profit expense chain in this source. "
+                    f"The {abs(gap):,.0f} THB gap equals D&A exactly. Numbers are correct — "
+                    f"no double-counting."
+                ))
+            elif gap_pct > 2:
                 direction = "exceed" if gap > 0 else "fall short of"
                 flags.append(Flag(
                     FlagLevel.ERROR, f"EXPENSE_CROSSCHECK_{year}",
