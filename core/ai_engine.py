@@ -149,19 +149,19 @@ def extract_financials_and_business_model(company_files, financial_files, availa
     │  Row 8: TOTAL REVENUE = Row 6 + Row 7          [FORMULA]          │
     ├─ COST OF SALES ────────────────────────────────────────────────────┤
     │  Row 11: cost_of_goods_sold     ← Direct costs of production      │
-    │  Row 12: GROSS PROFIT = Row 8 − Row 11         [FORMULA]          │
+    │  Row 15: GROSS PROFIT = Row 8 − Row 11         [FORMULA]          │
     ├─ OPERATING EXPENSES ───────────────────────────────────────────────┤
-    │  Row 18: sales_expenses         ← Selling & distribution costs    │
-    │  Row 19: administrative_expenses← G&A, office, salaries, etc.     │
-    │  Row 20: other_expenses         ← Non-recurring or misc OpEx      │
-    │  Row 21: EBITDA = Row 12 − (Row 18+19+20)      [FORMULA]          │
-    ├─ BELOW EBITDA ─────────────────────────────────────────────────────┤
-    │  Row 26: depreciation_amortization ← D&A (below EBITDA)           │
-    │  Row 27: EBIT = Row 21 − Row 26                [FORMULA]          │
-    │  Row 30: interest_expenses      ← Finance costs / debt service    │
-    │  Row 31: PBT = Row 27 − Row 30                 [FORMULA]          │
-    │  Row 34: tax                    ← Income tax expense              │
-    │  Row 35: NET PROFIT = Row 31 − Row 34           [FORMULA]          │
+    │  Row 19: sales_expenses         ← Selling & distribution costs    │
+    │  Row 20: administrative_expenses← G&A, office, salaries, etc.     │
+    │  Row 21: other_expenses         ← Non-recurring or misc OpEx      │
+    │  Row 25: EBIT = Row 15 − (Row 19+20+21)        [FORMULA]          │
+    ├─ BELOW EBIT ──────────────────────────────────────────────────────┤
+    │  Row 28: depreciation_amortization ← D&A (EBITDA add-back)        │
+    │  Row 29: EBITDA = Row 25 + Row 28               [FORMULA]          │
+    │  Row 33: interest_expenses      ← Finance costs / debt service    │
+    │  Row 34: PBT = Row 25 − Row 33                 [FORMULA]          │
+    │  Row 37: tax                    ← Income tax expense              │
+    │  Row 40: NET PROFIT = Row 34 − Row 37           [FORMULA]          │
     └────────────────────────────────────────────────────────────────────┘
 
     SIGN CONVENTION: ALL 9 values must be POSITIVE numbers (absolute values).

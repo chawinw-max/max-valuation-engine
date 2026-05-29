@@ -149,12 +149,12 @@ def inject_phase1_data(workbook, data, available_years):
             'sales_and_services': 6,
             'other_revenues': 7,
             'cost_of_goods_sold': 11,
-            'sales_expenses': 18,
-            'administrative_expenses': 19,
-            'other_expenses': 20,
-            'depreciation_amortization': 26,
-            'interest_expenses': 30,
-            'tax': 34
+            'sales_expenses': 19,
+            'administrative_expenses': 20,
+            'other_expenses': 21,
+            'depreciation_amortization': 28,
+            'interest_expenses': 33,
+            'tax': 37,
         }
 
         # Template has FIXED year-to-column mapping (Summary formulas depend on it):
@@ -302,28 +302,38 @@ def inject_phase3_data(workbook, deep_dive, lseg_parsed_peers, selected_peers, d
         _safe_write(sheet, 'C4', latest_year)
         _safe_write(sheet, 'C5', "THB (actual / millions as noted)")
 
-        # Template structure (verified against live template):
-        #   EV/EBITDA data rows: 11-17  (A=pre-filled pos, B=ArrayFormula from C, C=ticker INPUT, D-H=data INPUT)
-        #   P/E data rows:       23-29  (C=formula =C11..C17, D-H=data INPUT)
-        #   EV/Revenue data rows:35-41  (C=formula =C23..C29, D-H=data INPUT)
+        # Template structure (updated — quarterly layout):
+        #   Columns D-W = quarterly multiples (Q1 2021 through Q4 2025)
+        #     D-G = 2021 Q1-Q4, H-K = 2022 Q1-Q4, L-O = 2023 Q1-Q4,
+        #     P-S = 2024 Q1-Q4, T-W = 2025 Q1-Q4
+        #   X = Average (last 12 quarters), Y = Median (last 12 quarters)
+        #   Z-AC = LTM quarters, AD-AE = LTM Avg/Median
         #
+        #   EV/EBITDA data rows: 11-17  (A=position, B=ArrayFormula, C=ticker INPUT, D-W=quarterly INPUT)
+        #   P/E data rows:       23-29  (C=formula =C11..C17, D-W=quarterly INPUT)
+        #   EV/Revenue data rows:35-41  (C=formula =C23..C29, D-W=quarterly INPUT)
+        #
+        # LSEG parser returns annual data — we write to the Q4 column for each
+        # year (G, K, O, S, W) as the best annual proxy.  Quarterly slots
+        # (Q1-Q3) are left empty for manual entry from LSEG quarterly exports.
+
         # Clear INPUT cells for all 7 peer slots before writing.
-        # EV/EBITDA: skip A (pre-filled position numbers), clear B-H.
-        # P/E / EV/Revenue: skip C (formula), clear D-H.
+        # EV/EBITDA: skip A (pre-filled position numbers), clear B and D-W.
+        # P/E / EV/Revenue: skip C (formula), clear D-W.
         for _r_off in range(7):
-            for _col in range(2, 9):  # B=2 through H=8; skip A=1
+            for _col in [2] + list(range(4, 24)):  # B=2, D=4 through W=23
                 _cell = sheet.cell(row=11 + _r_off, column=_col)
                 if not isinstance(_cell, MergedCell) and not (
                     isinstance(_cell.value, str) and _cell.value.startswith('=')
                 ):
                     _cell.value = None
-            for _col in range(4, 9):  # D-H only for P/E
+            for _col in range(4, 24):  # D-W for P/E
                 _cell = sheet.cell(row=23 + _r_off, column=_col)
                 if not isinstance(_cell, MergedCell) and not (
                     isinstance(_cell.value, str) and _cell.value.startswith('=')
                 ):
                     _cell.value = None
-            for _col in range(4, 9):  # D-H only for EV/Revenue
+            for _col in range(4, 24):  # D-W for EV/Revenue
                 _cell = sheet.cell(row=35 + _r_off, column=_col)
                 if not isinstance(_cell, MergedCell) and not (
                     isinstance(_cell.value, str) and _cell.value.startswith('=')
@@ -331,20 +341,23 @@ def inject_phase3_data(workbook, deep_dive, lseg_parsed_peers, selected_peers, d
                     _cell.value = None
 
         # EV/EBITDA: rows 11-17 ; P/E: rows 23-29 ; EV/Revenue: rows 35-41
-        years_cols = [('2021', 'D'), ('2022', 'E'), ('2023', 'F'), ('2024', 'G'), ('2025', 'H')]
+        # Annual data mapped to Q4 column for each year:
+        #   2021 Q4 = col G, 2022 Q4 = col K, 2023 Q4 = col O,
+        #   2024 Q4 = col S, 2025 Q4 = col W
+        years_q4_cols = [
+            ('2021', 'G'), ('2022', 'K'), ('2023', 'O'),
+            ('2024', 'S'), ('2025', 'W'),
+        ]
 
         for i, peer in enumerate(selected_peers[:7]):
             ticker = peer.get('identifier')
             lseg = _lseg_peer(lseg_by_ticker, ticker, peer.get('company_name'))
 
             # Section 1: EV/EBITDA — rows 11-17
-            # A is pre-filled (1-7); B is an ArrayFormula that auto-populates from C.
-            # Write company_name to B anyway (overrides ArrayFormula safely).
             r1 = 11 + i
-            _safe_write(sheet, f'B{r1}', peer.get('company_name'))
             _safe_write(sheet, f'C{r1}', ticker)
             ev_ebitda = lseg.get('ev_ebitda', {})
-            for year, col in years_cols:
+            for year, col in years_q4_cols:
                 v = ev_ebitda.get(year)
                 if v is not None:
                     _safe_write(sheet, f'{col}{r1}', v)
@@ -352,7 +365,7 @@ def inject_phase3_data(workbook, deep_dive, lseg_parsed_peers, selected_peers, d
             # Section 2: P/E — rows 23-29 (C column is FORMULA, skip)
             r2 = 23 + i
             pe = lseg.get('pe', {})
-            for year, col in years_cols:
+            for year, col in years_q4_cols:
                 v = pe.get(year)
                 if v is not None:
                     _safe_write(sheet, f'{col}{r2}', v)
@@ -360,7 +373,7 @@ def inject_phase3_data(workbook, deep_dive, lseg_parsed_peers, selected_peers, d
             # Section 3: EV/Revenue — rows 35-41 (C column is FORMULA, skip)
             r3 = 35 + i
             ev_rev = lseg.get('ev_revenue', {})
-            for year, col in years_cols:
+            for year, col in years_q4_cols:
                 v = ev_rev.get(year)
                 if v is not None:
                     _safe_write(sheet, f'{col}{r3}', v)

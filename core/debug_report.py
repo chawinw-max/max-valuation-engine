@@ -114,12 +114,12 @@ def _preview_phase1(data, available_years):
         "sales_and_services": 6,
         "other_revenues": 7,
         "cost_of_goods_sold": 11,
-        "sales_expenses": 18,
-        "administrative_expenses": 19,
-        "other_expenses": 20,
-        "depreciation_amortization": 26,
-        "interest_expenses": 30,
-        "tax": 34,
+        "sales_expenses": 19,
+        "administrative_expenses": 20,
+        "other_expenses": 21,
+        "depreciation_amortization": 28,
+        "interest_expenses": 33,
+        "tax": 37,
     }
     year_col = {2021: 'C', 2022: 'D', 2023: 'E', 2024: 'F', 2025: 'G'}
     for year in available_years:
@@ -248,7 +248,13 @@ def _preview_phase3(deep_dive, lseg_parsed_peers, selected_peers, deal_code, cli
     hist["C4"] = _safe(latest_year)
     hist["C5"] = "THB (actual / millions as noted)"
 
-    years_cols = [("2021", "D"), ("2022", "E"), ("2023", "F"), ("2024", "G"), ("2025", "H")]
+    # Annual data mapped to Q4 columns in the quarterly layout:
+    #   2021 Q4 = col G, 2022 Q4 = col K, 2023 Q4 = col O,
+    #   2024 Q4 = col S, 2025 Q4 = col W
+    years_q4_cols = [
+        ("2021", "G"), ("2022", "K"), ("2023", "O"),
+        ("2024", "S"), ("2025", "W"),
+    ]
 
     for i, peer in enumerate(selected_peers[:7]):
         ticker = peer.get("identifier")
@@ -256,21 +262,20 @@ def _preview_phase3(deep_dive, lseg_parsed_peers, selected_peers, deal_code, cli
 
         # EV/EBITDA rows start at 11 (template confirmed: rows 11-17)
         r1 = 11 + i
-        hist[f"B{r1}"] = _safe(peer.get("company_name"))
         hist[f"C{r1}"] = _safe(ticker)
         ev_ebitda = lseg.get("ev_ebitda", {}) or {}
-        for year, col in years_cols:
+        for year, col in years_q4_cols:
             v = ev_ebitda.get(year)
             hist[f"{col}{r1}"] = _safe(v)
 
         r2 = 23 + i
         pe = lseg.get("pe", {}) or {}
-        for year, col in years_cols:
+        for year, col in years_q4_cols:
             hist[f"{col}{r2}"] = _safe(pe.get(year))
 
         r3 = 35 + i
         ev_rev = lseg.get("ev_revenue", {}) or {}
-        for year, col in years_cols:
+        for year, col in years_q4_cols:
             hist[f"{col}{r3}"] = _safe(ev_rev.get(year))
 
     cells["Appendix_Hist_Trading_Performan"] = hist
