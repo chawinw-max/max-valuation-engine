@@ -149,19 +149,26 @@ def extract_financials_and_business_model(company_files, financial_files, availa
     │  Row 8: TOTAL REVENUE = Row 6 + Row 7          [FORMULA]          │
     ├─ COST OF SALES ────────────────────────────────────────────────────┤
     │  Row 11: cost_of_goods_sold     ← Direct costs of production      │
-    │  Row 15: GROSS PROFIT = Row 8 − Row 11         [FORMULA]          │
+    │  Row 12: TOTAL COGS = SUM(Row 11)              [FORMULA]          │
+    │  Row 14: GROSS PROFIT = Row 8 − Row 12         [FORMULA]          │
     ├─ OPERATING EXPENSES ───────────────────────────────────────────────┤
-    │  Row 19: sales_expenses         ← Selling & distribution costs    │
-    │  Row 20: administrative_expenses← G&A, office, salaries, etc.     │
-    │  Row 21: other_expenses         ← Non-recurring or misc OpEx      │
-    │  Row 25: EBIT = Row 15 − (Row 19+20+21)        [FORMULA]          │
-    ├─ BELOW EBIT ──────────────────────────────────────────────────────┤
-    │  Row 28: depreciation_amortization ← D&A (EBITDA add-back)        │
-    │  Row 29: EBITDA = Row 25 + Row 28               [FORMULA]          │
-    │  Row 33: interest_expenses      ← Finance costs / debt service    │
-    │  Row 34: PBT = Row 25 − Row 33                 [FORMULA]          │
-    │  Row 37: tax                    ← Income tax expense              │
-    │  Row 40: NET PROFIT = Row 34 − Row 37           [FORMULA]          │
+    │  Row 18: sales_expenses         ← Selling & distribution costs    │
+    │  Row 19: administrative_expenses← G&A, office, salaries, etc.     │
+    │  Row 20: CEO Salary (Normalised)← Filled manually, not by you     │
+    │  Row 21: TOTAL OpEx = SUM(Row 18:20)           [FORMULA]          │
+    │  Row 23: EBITDA = Row 14 − Row 21              [FORMULA]          │
+    ├─ BELOW EBITDA ─────────────────────────────────────────────────────┤
+    │  Row 26: depreciation_amortization ← D&A                          │
+    │  Row 27: EBIT = Row 23 − Row 26               [FORMULA]          │
+    │  Row 30: interest_expenses      ← Finance costs / debt service    │
+    │  Row 31: EBT = Row 27 − Row 30                [FORMULA]          │
+    │  Row 34: tax                    ← Income tax expense              │
+    │  Row 35: NET PROFIT = Row 31 − Row 34          [FORMULA]          │
+    ├─ EBITDA ADD-BACK (M&A Normalisation) ──────────────────────────────┤
+    │  Row 38: CEO Salary Add-Back    ← Filled manually after generation│
+    │  Row 39: Other Non-recurring    ← One-time items (default 0)      │
+    │  Row 40: Total Add-Back = SUM(Row 38:39)       [FORMULA]          │
+    │  Row 41: Adjusted EBITDA = Row 23 + Row 40     [FORMULA]          │
     └────────────────────────────────────────────────────────────────────┘
 
     SIGN CONVENTION: ALL 9 values must be POSITIVE numbers (absolute values).
@@ -177,7 +184,7 @@ def extract_financials_and_business_model(company_files, financial_files, availa
        instead of ต้นทุนขาย (COGS). If only Gross Profit is shown, BACK-CALCULATE:
        cost_of_goods_sold = Total Revenue − Gross Profit
        IMPORTANT: Mark in _verification that COGS was "derived" (not directly extracted).
-    3. D&A PLACEMENT — D&A goes in Row 26 (below EBITDA), NOT inside admin expenses.
+    3. D&A PLACEMENT — D&A goes in Row 26 (below EBITDA, above EBIT), NOT inside admin expenses.
        If the source buries D&A inside admin or operating expenses, you must SEPARATE it:
        - Extract the D&A amount into depreciation_amortization
        - Subtract that amount from administrative_expenses to avoid double-counting
