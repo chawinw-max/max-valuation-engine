@@ -127,6 +127,40 @@ def _safe_write(sheet, cell_coord, value):
     cell.value = value
     return True
 
+
+def _force_write(sheet, cell_coord, value):
+    """
+    Force-writes a value to a cell, even if it contains a formula.
+    Used when the template structure changed and old formulas must be replaced.
+    Handles merged cells like _safe_write.
+    """
+    cell = sheet[cell_coord]
+    if isinstance(cell, MergedCell):
+        for merged_range in sheet.merged_cells.ranges:
+            if cell.coordinate in merged_range:
+                cell = sheet.cell(row=merged_range.min_row, column=merged_range.min_col)
+                break
+        else:
+            return False
+    if isinstance(value, float) and math.isnan(value):
+        return False
+    cell.value = value
+    return True
+
+
+def _clear_cell(sheet, cell_coord):
+    """Clear a cell's value (including formulas). For template migration."""
+    cell = sheet[cell_coord]
+    if isinstance(cell, MergedCell):
+        for merged_range in sheet.merged_cells.ranges:
+            if cell.coordinate in merged_range:
+                cell = sheet.cell(row=merged_range.min_row, column=merged_range.min_col)
+                break
+        else:
+            return
+    cell.value = None
+
+
 def inject_phase1_data(workbook, data, available_years):
     """
     Injects Phase 1 data (Preliminary P&L and Business Model) into the workbook.
@@ -135,15 +169,95 @@ def inject_phase1_data(workbook, data, available_years):
     # 1. Preliminary P&L
     if 'Preliminary P&L' in workbook.sheetnames:
         sheet = workbook['Preliminary P&L']
-        
+
         # B2: Currency label
         _safe_write(sheet, 'B2', "Currency : Thai Baht")
-        
+
         # B3: Source description
         years_str = "-".join(map(str, available_years))
-        _safe_write(sheet, 'B3', f"{data.get('client_name', 'Company')} – Audited Financial Statements FY{years_str}")
-        
+        _safe_write(sheet, 'B3', f"{data.get('client_name', 'Company')} — Management Accounts ({years_str})")
+
         financials = data.get('financials', {})
+
+        # --- Template migration: clear old structure and write V2 layout ---
+        # Clear old formula rows that moved or were removed, and rewrite labels + formulas
+        for col in ('C', 'D', 'E', 'F', 'G'):
+            # Row 9: Remove old YoY growth formulas
+            _clear_cell(sheet, f'{col}9')
+            # Row 12: Replace old %COGS with Total COGS
+            _force_write(sheet, f'{col}12', f'=SUM({col}11)')
+            # Row 14: Fix GP formula (was =C8-C11 or =C8+C11, now =C8-SUM(C11))
+            _force_write(sheet, f'{col}14', f'={col}8-SUM({col}11)')
+            # Row 15: GP margin with IFERROR
+            _force_write(sheet, f'{col}15', f'=IFERROR({col}14/{col}8,"")')
+            # Row 22: Remove old %SG&A
+            _clear_cell(sheet, f'{col}22')
+            # Row 23: EBITDA = GP - Total OpEx (NEW position)
+            _force_write(sheet, f'{col}23', f'={col}14-{col}21')
+            # Row 24: Clear old EBIT formula (moved to row 27)
+            _clear_cell(sheet, f'{col}24')
+            # Row 25: Clear old %EBIT Margin
+            _clear_cell(sheet, f'{col}25')
+            # Row 27: EBIT = EBITDA - D&A (NEW position)
+            _force_write(sheet, f'{col}27', f'={col}23-{col}26')
+            # Row 28: Clear old EBITDA formula
+            _clear_cell(sheet, f'{col}28')
+            # Row 29: Clear old %EBITDA Margin
+            _clear_cell(sheet, f'{col}29')
+            # Row 31: EBT = EBIT - Interest (NEW position)
+            _force_write(sheet, f'{col}31', f'={col}27-{col}30')
+            # Row 32: Clear old Interest label row data
+            _clear_cell(sheet, f'{col}32')
+            # Row 33: Clear old EBT formula (moved to row 31)
+            _clear_cell(sheet, f'{col}33')
+            # Row 35: Net Profit = EBT - Tax (NEW position)
+            _force_write(sheet, f'{col}35', f'={col}31-{col}34')
+            # Row 36: Clear old Tax data (moved to row 34)
+            _clear_cell(sheet, f'{col}36')
+            # Row 37: Clear old Tax Rate formula
+            _clear_cell(sheet, f'{col}37')
+            # Row 39: Clear old Net Profit formula (moved to row 35)
+            _clear_cell(sheet, f'{col}39')
+            # Row 40: Clear old %NP Margin
+            _clear_cell(sheet, f'{col}40')
+        # Clear old B-column labels that moved
+        _clear_cell(sheet, 'B22')   # old %SG&A label
+        _clear_cell(sheet, 'B25')   # old %EBIT Margin label
+        _clear_cell(sheet, 'B29')   # old %EBITDA Margin label
+        _clear_cell(sheet, 'B37')   # old Tax Rate label (collides with Add-Back)
+        _clear_cell(sheet, 'B40')   # old %NP Margin label
+        # Clear old A-column labels that moved
+        _clear_cell(sheet, 'A28')   # old EBITDA label
+        _clear_cell(sheet, 'A33')   # old EBT label (moved to A31)
+        _clear_cell(sheet, 'A35')   # old Tax Expense label (moved to A33)
+        _clear_cell(sheet, 'A39')   # old Net Profit label (moved to A35)
+
+        # Write V2 structural labels
+        _force_write(sheet, 'B11', 'Cost of good sold')
+        _force_write(sheet, 'B12', 'Total Cost of Good sold')
+        _force_write(sheet, 'A14', 'Gross Profit')
+        _force_write(sheet, 'A15', 'Gross Profit Margin')
+        _force_write(sheet, 'B18', 'Sales Expenses')
+        _force_write(sheet, 'B19', 'Administrative Expenses')
+        _force_write(sheet, 'B20', 'CEO Salary (Normalised)')
+        _force_write(sheet, 'A21', 'Total Operating Expenses')
+        _force_write(sheet, 'A23', 'Income Before Interest, Taxes, Depreciation and Amortization (EBITDA)')
+        _force_write(sheet, 'A25', 'Non-cash Expenses')
+        _force_write(sheet, 'A26', '-')
+        _force_write(sheet, 'B26', 'Depreciation and Amortization')
+        _force_write(sheet, 'B27', None)  # clear old D&A label at B27
+        _force_write(sheet, 'A27', 'Income Before Interest and Taxes (EBIT)')
+        _force_write(sheet, 'A29', 'Source of Funds')
+        _force_write(sheet, 'B30', 'Interest Expeneses')
+        _force_write(sheet, 'B32', None)  # clear old Interest label at B32
+        _force_write(sheet, 'A31', 'Pretax Income (EBT)')
+        _force_write(sheet, 'A33', 'Tax Expense ')
+        _force_write(sheet, 'B34', 'Tax')
+        _force_write(sheet, 'B36', None)  # clear old Tax row label
+        _force_write(sheet, 'A35', 'Net Profit')
+        # Net Profit margin (row 36) — only for years with data (E-G)
+        for col in ('E', 'F', 'G'):
+            _force_write(sheet, f'{col}36', f'=IFERROR({col}35/{col}8,"")')
 
         # FINAL template row map (V2 / Dental2 layout):
         #   Row 6: Sales, Row 7: Other Rev, Row 8: Total Rev [FORMULA]
@@ -566,117 +680,147 @@ def inject_phase4_data(workbook, data, latest_year):
         or client_name
     )
 
+    # --- Template migration: clear old Summary formulas before writing V2 ---
+    # Key metrics row 5: clear old /1000000 formulas
+    for cell in ('C5', 'D5', 'E5'):
+        _clear_cell(sheet, cell)
+    # Discount row 8: clear old country discount reference
+    _clear_cell(sheet, 'D8')
+    # Valuation rows 12-22: clear old column D formulas (were discounted multiples)
+    for r in range(12, 23):
+        for c in ('D', 'E', 'F'):
+            _clear_cell(sheet, f'{c}{r}')
+    # Peer rows 29-37: clear ALL old IF(MATCH) formulas in E-P columns
+    for r in range(29, 38):
+        for c in ('E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P'):
+            _clear_cell(sheet, f'{c}{r}')
+    # Old Average/Median rows at 35-36: clear D column labels
+    _clear_cell(sheet, 'D35')
+    _clear_cell(sheet, 'D36')
+    # Old build table rows 38-43: clear to make room for new layout
+    for r in range(38, 44):
+        for c in ('B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K'):
+            _clear_cell(sheet, f'{c}{r}')
+    # Sensitivity analysis section (H18-J23): clear old content
+    for r in range(18, 24):
+        for c in ('H', 'I', 'J', 'K'):
+            _clear_cell(sheet, f'{c}{r}')
+    # Old balance sheet snapshot (H48-K52): clear
+    for r in range(48, 53):
+        for c in ('H', 'I', 'J', 'K'):
+            _clear_cell(sheet, f'{c}{r}')
+
     # --- 1.1 Title & header ---
-    _safe_write(sheet, 'B2', f"Project {deal_code} – {client_name} ({legal_name}) Comps Tables")
-    _safe_write(sheet, 'D3', f"From {latest_year}")
+    _force_write(sheet, 'B2', f"Project {deal_code} – {client_name} ({legal_name}) Comps Tables")
+    _force_write(sheet, 'D3', f"From {latest_year}")
 
     # --- 1.2 Key Metrics (rows 4-5) ---
-    _safe_write(sheet, 'C4', 'Revenue')
-    _safe_write(sheet, 'D4', 'EBITDA')
-    _safe_write(sheet, 'E4', 'Net Profit')
-    _safe_write(sheet, 'B5', f'{latest_year} Adjusted')
-    _safe_write(sheet, 'C5', "='Preliminary P&L'!G8")       # Total Revenue (absolute THB)
-    _safe_write(sheet, 'D5', '=J45')                         # 2025 Adjusted EBITDA from build table
-    _safe_write(sheet, 'E5', "='Preliminary P&L'!G35")       # Net Profit row 35
-    _safe_write(sheet, 'F5', 'mm THB')
+    _force_write(sheet, 'C4', 'Revenue')
+    _force_write(sheet, 'D4', 'EBITDA')
+    _force_write(sheet, 'E4', 'Net Profit')
+    _force_write(sheet, 'B5', f'{latest_year} Adjusted')
+    _force_write(sheet, 'C5', "='Preliminary P&L'!G8")       # Total Revenue (absolute THB)
+    _force_write(sheet, 'D5', '=J45')                         # Adjusted EBITDA from build table
+    _force_write(sheet, 'E5', "='Preliminary P&L'!G35")       # Net Profit row 35
+    _force_write(sheet, 'F5', 'mm THB')
 
     # --- 1.3 Discount table (rows 6-9) ---
-    _safe_write(sheet, 'B6', 'Discount Table')
-    _safe_write(sheet, 'C7', '% of Discount')
-    _safe_write(sheet, 'D7', '=Comparison!F39')              # Dynamic scale discount
-    _safe_write(sheet, 'E7', 'Scale Discount')
-    _safe_write(sheet, 'D8', '=Comparison!L18')              # Country discount (new column)
-    _safe_write(sheet, 'E8', 'Country Discount')
-    _safe_write(sheet, 'D9', '=1-(1-D7)*(1-D8)')            # Combined discount
-    _safe_write(sheet, 'E9', 'Summary Discount')
+    _force_write(sheet, 'B6', 'Discount Table')
+    _force_write(sheet, 'C7', '% of Discount')
+    _force_write(sheet, 'D7', '=Comparison!F39')              # Dynamic scale discount
+    _force_write(sheet, 'E7', 'Scale Discount')
+    _force_write(sheet, 'D8', '=Comparison!L18')              # Country discount (new column)
+    _force_write(sheet, 'E8', 'Country Discount')
+    _force_write(sheet, 'D9', '=1-(1-D7)*(1-D8)')            # Combined discount
+    _force_write(sheet, 'E9', 'Summary Discount')
 
     # --- 1.4 Valuation table — headers (rows 11-12) ---
-    _safe_write(sheet, 'B11', 'EBITDA Multiple')
-    _safe_write(sheet, 'E11', 'Discounted Multiple')
-    _safe_write(sheet, 'F11', 'Implied Enterprise Value')
-    _safe_write(sheet, 'I11', 'Last 12 Quarters')
-    _safe_write(sheet, 'J11', 'Last 12 Quarters')
-    _safe_write(sheet, 'K11', f'LTM 4Q, {latest_year}')
-    _safe_write(sheet, 'L11', f'LTM 4Q, {latest_year}')
-    _safe_write(sheet, 'H12', 'Metrics')
-    _safe_write(sheet, 'I12', 'Industry Median ')
-    _safe_write(sheet, 'J12', 'Industry Average')
-    _safe_write(sheet, 'K12', 'Industry Median')
-    _safe_write(sheet, 'L12', 'Industry Average')
+    _force_write(sheet, 'B11', 'EBITDA Multiple')
+    _force_write(sheet, 'E11', 'Discounted Multiple')
+    _force_write(sheet, 'F11', 'Implied Enterprise Value')
+    _force_write(sheet, 'I11', 'Last 12 Quarters')
+    _force_write(sheet, 'J11', 'Last 12 Quarters')
+    _force_write(sheet, 'K11', f'LTM 4Q, {latest_year}')
+    _force_write(sheet, 'L11', f'LTM 4Q, {latest_year}')
+    _force_write(sheet, 'H12', 'Metrics')
+    _force_write(sheet, 'I12', 'Industry Median ')
+    _force_write(sheet, 'J12', 'Industry Average')
+    _force_write(sheet, 'K12', 'Industry Median')
+    _force_write(sheet, 'L12', 'Industry Average')
 
     # EV/EBITDA (rows 12-14): industry data → I13/J13/K13/L13
-    _safe_write(sheet, 'I13', '=F38')   # EV/EBITDA 12Q Median from peer table
-    _safe_write(sheet, 'J13', '=E38')   # EV/EBITDA 12Q Average
-    _safe_write(sheet, 'K13', '=H38')   # EV/EBITDA LTM Median
-    _safe_write(sheet, 'L13', '=G38')   # EV/EBITDA LTM Average
-    _safe_write(sheet, 'D12', f'LTM 4Q, {latest_year}')
-    _safe_write(sheet, 'E12', '=(MIN(I13:L13)*(1-$D$7)*(1-$D$8))')
-    _safe_write(sheet, 'F12', '=$D$5*E12')
-    _safe_write(sheet, 'D13', 'Last 12 Quarters')
-    _safe_write(sheet, 'E13', '=(MAX(I13:L13)*(1-$D$7)*(1-$D$8))')
-    _safe_write(sheet, 'F13', '=$D$5*E13')
-    _safe_write(sheet, 'E14', '=AVERAGE(E12:E13)')
-    _safe_write(sheet, 'F14', '=$D$5*E14')
+    _force_write(sheet, 'I13', '=F38')
+    _force_write(sheet, 'J13', '=E38')
+    _force_write(sheet, 'K13', '=H38')
+    _force_write(sheet, 'L13', '=G38')
+    _force_write(sheet, 'D12', f'LTM 4Q, {latest_year}')
+    _force_write(sheet, 'E12', '=(MIN(I13:L13)*(1-$D$7)*(1-$D$8))')
+    _force_write(sheet, 'F12', '=$D$5*E12')
+    _force_write(sheet, 'D13', 'Last 12 Quarters')
+    _force_write(sheet, 'E13', '=(MAX(I13:L13)*(1-$D$7)*(1-$D$8))')
+    _force_write(sheet, 'F13', '=$D$5*E13')
+    _force_write(sheet, 'E14', '=AVERAGE(E12:E13)')
+    _force_write(sheet, 'F14', '=$D$5*E14')
 
     # P/E (rows 15-18): industry data → I14/J14/K14/L14
-    _safe_write(sheet, 'B15', 'P/E Multiple')
-    _safe_write(sheet, 'E15', 'Discounted Multiple')
-    _safe_write(sheet, 'F15', 'Implied Equity Value')
-    _safe_write(sheet, 'I14', '=J38')   # P/E 12Q Median
-    _safe_write(sheet, 'J14', '=I38')   # P/E 12Q Average
-    _safe_write(sheet, 'K14', '=L38')   # P/E LTM Median
-    _safe_write(sheet, 'L14', '=K38')   # P/E LTM Average
-    _safe_write(sheet, 'D16', f'LTM 4Q, {latest_year}')
-    _safe_write(sheet, 'E16', '=(MIN(I14:L14)*(1-$D$7)*(1-$D$8))')
-    _safe_write(sheet, 'F16', '=$E$5*E16')
-    _safe_write(sheet, 'D17', 'Last 12 Quarters')
-    _safe_write(sheet, 'E17', '=(MAX(I14:L14)*(1-$D$7)*(1-$D$8))')
-    _safe_write(sheet, 'F17', '=$E$5*E17')
-    _safe_write(sheet, 'E18', '=AVERAGE(E16:E17)')
-    _safe_write(sheet, 'F18', '=$E$5*E18')
+    _force_write(sheet, 'B15', 'P/E Multiple')
+    _force_write(sheet, 'E15', 'Discounted Multiple')
+    _force_write(sheet, 'F15', 'Implied Equity Value')
+    _force_write(sheet, 'I14', '=J38')
+    _force_write(sheet, 'J14', '=I38')
+    _force_write(sheet, 'K14', '=L38')
+    _force_write(sheet, 'L14', '=K38')
+    _force_write(sheet, 'D16', f'LTM 4Q, {latest_year}')
+    _force_write(sheet, 'E16', '=(MIN(I14:L14)*(1-$D$7)*(1-$D$8))')
+    _force_write(sheet, 'F16', '=$E$5*E16')
+    _force_write(sheet, 'D17', 'Last 12 Quarters')
+    _force_write(sheet, 'E17', '=(MAX(I14:L14)*(1-$D$7)*(1-$D$8))')
+    _force_write(sheet, 'F17', '=$E$5*E17')
+    _force_write(sheet, 'E18', '=AVERAGE(E16:E17)')
+    _force_write(sheet, 'F18', '=$E$5*E18')
 
     # EV/Revenue (rows 19-22): industry data → I15/J15/K15/L15
-    _safe_write(sheet, 'B19', 'Revenue Multiple')
-    _safe_write(sheet, 'E19', 'Discounted Multiple')
-    _safe_write(sheet, 'F19', 'Implied Enterprise Value')
-    _safe_write(sheet, 'I15', '=M38')   # EV/Rev 12Q Median
-    _safe_write(sheet, 'J15', '=N38')   # EV/Rev 12Q Average (corrected from report)
-    _safe_write(sheet, 'K15', '=O38')   # EV/Rev LTM Median
-    _safe_write(sheet, 'L15', '=P38')   # EV/Rev LTM Average
-    _safe_write(sheet, 'D20', f'LTM 4Q, {latest_year}')
-    _safe_write(sheet, 'E20', '=(MIN(I15:L15)*(1-$D$7)*(1-$D$8))')
-    _safe_write(sheet, 'F20', '=$C$5*E20')
-    _safe_write(sheet, 'D21', 'Last 12 Quarters')
-    _safe_write(sheet, 'E21', '=(MAX(I15:L15)*(1-$D$7)*(1-$D$8))')
-    _safe_write(sheet, 'F21', '=$C$5*E21')
-    _safe_write(sheet, 'E22', '=AVERAGE(E20:E21)')
-    _safe_write(sheet, 'F22', '=$C$5*E22')
+    _force_write(sheet, 'B19', 'Revenue Multiple')
+    _force_write(sheet, 'E19', 'Discounted Multiple')
+    _force_write(sheet, 'F19', 'Implied Enterprise Value')
+    _force_write(sheet, 'I15', '=M38')
+    _force_write(sheet, 'J15', '=N38')
+    _force_write(sheet, 'K15', '=O38')
+    _force_write(sheet, 'L15', '=P38')
+    _force_write(sheet, 'D20', f'LTM 4Q, {latest_year}')
+    _force_write(sheet, 'E20', '=(MIN(I15:L15)*(1-$D$7)*(1-$D$8))')
+    _force_write(sheet, 'F20', '=$C$5*E20')
+    _force_write(sheet, 'D21', 'Last 12 Quarters')
+    _force_write(sheet, 'E21', '=(MAX(I15:L15)*(1-$D$7)*(1-$D$8))')
+    _force_write(sheet, 'F21', '=$C$5*E21')
+    _force_write(sheet, 'E22', '=AVERAGE(E20:E21)')
+    _force_write(sheet, 'F22', '=$C$5*E22')
 
     # --- 1.5 Fair Value Summary (rows 24-26) ---
-    _safe_write(sheet, 'E24', 'Floor')
-    _safe_write(sheet, 'F24', '=AVERAGE(F12,F16,F20)')
-    _safe_write(sheet, 'E25', 'Average Fair Value')
-    _safe_write(sheet, 'F25', '=AVERAGE(F18,F14,F22)')
-    _safe_write(sheet, 'E26', 'Ceiling')
-    _safe_write(sheet, 'F26', '=AVERAGE(F13,F17,F21)')
+    _force_write(sheet, 'E24', 'Floor')
+    _force_write(sheet, 'F24', '=AVERAGE(F12,F16,F20)')
+    _force_write(sheet, 'E25', 'Average Fair Value')
+    _force_write(sheet, 'F25', '=AVERAGE(F18,F14,F22)')
+    _force_write(sheet, 'E26', 'Ceiling')
+    _force_write(sheet, 'F26', '=AVERAGE(F13,F17,F21)')
 
     # --- 1.6 Comparable Company table — headers (rows 28-30) ---
-    _safe_write(sheet, 'E28', 'EV/EBITDA')
-    _safe_write(sheet, 'I28', 'P/E')
-    _safe_write(sheet, 'M28', 'EV/Revenue')
-    _safe_write(sheet, 'B29', 'Note')
-    _safe_write(sheet, 'C29', 'Ticker')
-    _safe_write(sheet, 'D29', 'Country')
+    _force_write(sheet, 'E28', 'EV/EBITDA')
+    _force_write(sheet, 'I28', 'P/E')
+    _force_write(sheet, 'M28', 'EV/Revenue')
+    _force_write(sheet, 'B29', 'Note')
+    _force_write(sheet, 'C29', 'Ticker')
+    _force_write(sheet, 'D29', 'Country')
     for col, label in [('E', 'Last 12Q'), ('F', ' Last 12Q'), ('G', f'LTM {latest_year}'), ('H', f'LTM {latest_year}')]:
-        _safe_write(sheet, f'{col}29', label)
+        _force_write(sheet, f'{col}29', label)
     for col, label in [('I', 'Last 12Q'), ('J', ' Last 12Q'), ('K', f'LTM {latest_year}'), ('L', f'LTM {latest_year}')]:
-        _safe_write(sheet, f'{col}29', label)
+        _force_write(sheet, f'{col}29', label)
     for col, label in [('M', 'Last 12Q'), ('N', ' Last 12Q'), ('O', f'LTM {latest_year}'), ('P', f'LTM {latest_year}')]:
-        _safe_write(sheet, f'{col}29', label)
+        _force_write(sheet, f'{col}29', label)
     for col in ('E', 'G', 'I', 'K', 'M', 'O'):
-        _safe_write(sheet, f'{col}30', 'Avg')
+        _force_write(sheet, f'{col}30', 'Avg')
     for col in ('F', 'H', 'J', 'L', 'N', 'P'):
-        _safe_write(sheet, f'{col}30', 'Median')
+        _force_write(sheet, f'{col}30', 'Median')
 
     # Peer rows (31-37) — direct Appendix references for 7 peers
     for idx in range(7):
@@ -684,67 +828,67 @@ def inject_phase4_data(workbook, data, latest_year):
         app_ev = 10 + idx     # Appendix EV/EBITDA peer row
         app_pe = 23 + idx     # Appendix P/E peer row
         app_rv = 34 + idx     # Appendix EV/Revenue peer row
-        _safe_write(sheet, f'A{row}', idx + 1)
-        _safe_write(sheet, f'C{row}', f"='Appendix Hist Trading Performan'!C{app_ev}")
+        _force_write(sheet, f'A{row}', idx + 1)
+        _force_write(sheet, f'C{row}', f"='Appendix Hist Trading Performan'!C{app_ev}")
         # EV/EBITDA: 12Q Avg (P), 12Q Median (Q), LTM Avg (V), LTM Median (W)
-        _safe_write(sheet, f'E{row}', f"='Appendix Hist Trading Performan'!P{app_ev}")
-        _safe_write(sheet, f'F{row}', f"='Appendix Hist Trading Performan'!Q{app_ev}")
-        _safe_write(sheet, f'G{row}', f"='Appendix Hist Trading Performan'!V{app_ev}")
-        _safe_write(sheet, f'H{row}', f"='Appendix Hist Trading Performan'!W{app_ev}")
+        _force_write(sheet, f'E{row}', f"='Appendix Hist Trading Performan'!P{app_ev}")
+        _force_write(sheet, f'F{row}', f"='Appendix Hist Trading Performan'!Q{app_ev}")
+        _force_write(sheet, f'G{row}', f"='Appendix Hist Trading Performan'!V{app_ev}")
+        _force_write(sheet, f'H{row}', f"='Appendix Hist Trading Performan'!W{app_ev}")
         # P/E
-        _safe_write(sheet, f'I{row}', f"='Appendix Hist Trading Performan'!P{app_pe}")
-        _safe_write(sheet, f'J{row}', f"='Appendix Hist Trading Performan'!Q{app_pe}")
-        _safe_write(sheet, f'K{row}', f"='Appendix Hist Trading Performan'!V{app_pe}")
-        _safe_write(sheet, f'L{row}', f"='Appendix Hist Trading Performan'!W{app_pe}")
+        _force_write(sheet, f'I{row}', f"='Appendix Hist Trading Performan'!P{app_pe}")
+        _force_write(sheet, f'J{row}', f"='Appendix Hist Trading Performan'!Q{app_pe}")
+        _force_write(sheet, f'K{row}', f"='Appendix Hist Trading Performan'!V{app_pe}")
+        _force_write(sheet, f'L{row}', f"='Appendix Hist Trading Performan'!W{app_pe}")
         # EV/Revenue
-        _safe_write(sheet, f'M{row}', f"='Appendix Hist Trading Performan'!P{app_rv}")
-        _safe_write(sheet, f'N{row}', f"='Appendix Hist Trading Performan'!Q{app_rv}")
-        _safe_write(sheet, f'O{row}', f"='Appendix Hist Trading Performan'!V{app_rv}")
-        _safe_write(sheet, f'P{row}', f"='Appendix Hist Trading Performan'!W{app_rv}")
+        _force_write(sheet, f'M{row}', f"='Appendix Hist Trading Performan'!P{app_rv}")
+        _force_write(sheet, f'N{row}', f"='Appendix Hist Trading Performan'!Q{app_rv}")
+        _force_write(sheet, f'O{row}', f"='Appendix Hist Trading Performan'!V{app_rv}")
+        _force_write(sheet, f'P{row}', f"='Appendix Hist Trading Performan'!W{app_rv}")
 
     # Average and Median rows (38-39)
-    _safe_write(sheet, 'D38', 'Average')
-    _safe_write(sheet, 'D39', 'Median')
+    _force_write(sheet, 'D38', 'Average')
+    _force_write(sheet, 'D39', 'Median')
     for col in ('E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P'):
-        _safe_write(sheet, f'{col}38', f'=AVERAGE({col}31:{col}37)')
-        _safe_write(sheet, f'{col}39', f'=MEDIAN({col}31:{col}37)')
+        _force_write(sheet, f'{col}38', f'=AVERAGE({col}31:{col}37)')
+        _force_write(sheet, f'{col}39', f'=MEDIAN({col}31:{col}37)')
 
     # --- 1.7 EBITDA Build Table (rows 41-45) ---
     # Headers
     for col, label in [('B', 'Year'), ('C', 'Revenue'), ('D', 'Net Profit'),
                         ('E', 'Interest'), ('F', 'Tax'), ('G', 'Depreciation'),
                         ('H', 'EBITDA'), ('I', 'Add Back'), ('J', 'Adjusted EBITDA')]:
-        _safe_write(sheet, f'{col}41', label)
+        _force_write(sheet, f'{col}41', label)
 
     # Data rows: 42=2022, 43=2023, 44=2024, 45=2025
     pnl_year_cols = {2022: 'D', 2023: 'E', 2024: 'F', 2025: 'G'}
     for build_row, year in [(42, 2022), (43, 2023), (44, 2024), (45, 2025)]:
         pnl_col = pnl_year_cols[year]
-        _safe_write(sheet, f'B{build_row}', str(year))
-        _safe_write(sheet, f'C{build_row}', f"='Preliminary P&L'!{pnl_col}8")    # Revenue
-        _safe_write(sheet, f'D{build_row}', f"='Preliminary P&L'!{pnl_col}35")   # Net Profit
-        _safe_write(sheet, f'E{build_row}', f"='Preliminary P&L'!{pnl_col}30")   # Interest
-        _safe_write(sheet, f'F{build_row}', f"='Preliminary P&L'!{pnl_col}34")   # Tax
-        _safe_write(sheet, f'G{build_row}', f"='Preliminary P&L'!{pnl_col}26")   # D&A
-        _safe_write(sheet, f'H{build_row}', f"='Preliminary P&L'!{pnl_col}23")   # EBITDA
+        _force_write(sheet, f'B{build_row}', str(year))
+        _force_write(sheet, f'C{build_row}', f"='Preliminary P&L'!{pnl_col}8")    # Revenue
+        _force_write(sheet, f'D{build_row}', f"='Preliminary P&L'!{pnl_col}35")   # Net Profit
+        _force_write(sheet, f'E{build_row}', f"='Preliminary P&L'!{pnl_col}30")   # Interest
+        _force_write(sheet, f'F{build_row}', f"='Preliminary P&L'!{pnl_col}34")   # Tax
+        _force_write(sheet, f'G{build_row}', f"='Preliminary P&L'!{pnl_col}26")   # D&A
+        _force_write(sheet, f'H{build_row}', f"='Preliminary P&L'!{pnl_col}23")   # EBITDA
         if year == 2022:
-            _safe_write(sheet, f'I{build_row}', 0)  # No add-back for oldest year
+            _force_write(sheet, f'I{build_row}', 0)  # No add-back for oldest year
         else:
-            _safe_write(sheet, f'I{build_row}', f"='Preliminary P&L'!{pnl_col}40")  # Total Add-Back
-        _safe_write(sheet, f'J{build_row}', f'=H{build_row}+I{build_row}')  # Adj EBITDA
+            _force_write(sheet, f'I{build_row}', f"='Preliminary P&L'!{pnl_col}40")  # Total Add-Back
+        _force_write(sheet, f'J{build_row}', f'=H{build_row}+I{build_row}')  # Adj EBITDA
         if build_row >= 43:  # EBITDA margin for 2023+
-            _safe_write(sheet, f'K{build_row}', f'=J{build_row}/C{build_row}')
+            _force_write(sheet, f'K{build_row}', f'=J{build_row}/C{build_row}')
 
     # --- 1.8 Asset Table (rows 47-54) ---
-    _safe_write(sheet, 'B47', 'Assets to add value(M)')
-    _safe_write(sheet, 'C47', 'Value')
-    _safe_write(sheet, 'D47', 'Notes')
+    _force_write(sheet, 'B47', 'Assets to add value(M)')
+    _force_write(sheet, 'C47', 'Value')
+    _force_write(sheet, 'D47', 'Notes')
     asset_labels = ['Machines', 'Buildings', 'Land ', 'Vehicles', 'Inventory']
     for i, label in enumerate(asset_labels):
-        _safe_write(sheet, f'B{48+i}', label)
-    _safe_write(sheet, 'B53', 'Total Asset')
-    _safe_write(sheet, 'C53', '=SUM(C48:C52)')
-    _safe_write(sheet, 'D53', 'Sum of all transferable physical assets.')
-    _safe_write(sheet, 'B54', 'Total EV')
-    _safe_write(sheet, 'C54', '=F25+C53')
-    _safe_write(sheet, 'D54', 'Average Fair Value (income approach, multiple-based) + Total tangible asset value.')
+        _force_write(sheet, f'B{48+i}', label)
+    _force_write(sheet, 'B53', 'Total Asset')
+    _force_write(sheet, 'C53', '=SUM(C48:C52)')
+    _force_write(sheet, 'D53', 'Sum of all transferable physical assets.')
+    _force_write(sheet, 'B54', 'Total EV')
+    _force_write(sheet, 'C54', '=F25+C53')
+    _force_write(sheet, 'D54', 'Average Fair Value (income approach, multiple-based) + Total tangible asset value.')
