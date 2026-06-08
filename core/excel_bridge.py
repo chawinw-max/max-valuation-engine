@@ -352,6 +352,15 @@ def inject_phase3_data(workbook, deep_dive, lseg_parsed_peers, selected_peers, d
             _force_write(sheet, f'M{row}', f.get('revenue_2024'))
             _force_write(sheet, f'N{row}', f.get('ebitda_2024'))
 
+    # ----- Summary tab — peer tickers (rows 29-34) -----
+    # The Summary peer table has IF formulas that look up data from the Appendix
+    # based on the ticker in column C.  Without tickers, IF returns FALSE.
+    if 'Summary' in workbook.sheetnames:
+        summary = workbook['Summary']
+        for i, peer in enumerate(selected_peers[:6]):
+            row = 29 + i
+            _safe_write(summary, f'C{row}', peer.get('identifier'))
+
     # ----- Appendix Hist Trading Performan tab -----
     if 'Appendix Hist Trading Performan' in workbook.sheetnames:
         sheet = workbook['Appendix Hist Trading Performan']
