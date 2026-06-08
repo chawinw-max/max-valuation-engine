@@ -110,19 +110,17 @@ def _preview_phase1(data, available_years):
     pnl["B3"] = f"{data.get('client_name', 'Company')} – Audited Financial Statements FY{years_str}"
 
     financials = data.get("financials", {})
-    # FINAL V2 template row map (Dental2 layout)
-    # Row 18: Sales Exp, 19: Admin Exp, 20: CEO Salary (manual),
-    # 21: Total OpEx [FORMULA], 26: D&A, 30: Interest, 34: Tax
+    # Actual template row map (EBIT-first layout)
     row_map = {
         "sales_and_services": 6,
         "other_revenues": 7,
         "cost_of_goods_sold": 11,
         "sales_expenses": 18,
         "administrative_expenses": 19,
-        # Row 20 (CEO Salary) and 21 (Total OpEx) are manual/formula
-        "depreciation_amortization": 26,
-        "interest_expenses": 30,
-        "tax": 34,
+        "other_expenses": 20,
+        "depreciation_amortization": 27,
+        "interest_expenses": 32,
+        "tax": 36,
     }
     year_col = {2021: 'C', 2022: 'D', 2023: 'E', 2024: 'F', 2025: 'G'}
     for year in available_years:
@@ -217,31 +215,34 @@ def _preview_phase3(deep_dive, lseg_parsed_peers, selected_peers, deal_code, cli
     financials = {f.get("identifier"): f for f in deep_dive.get("financials_comparison", [])}
     lseg_by_ticker = _build_lseg_lookup(lseg_parsed_peers)
 
-    # Comparison tab
+    # Comparison tab — qualitative rows 5-10 (cols C-J), financial rows 18-23
     comp = {}
     for i, peer in enumerate(selected_peers[:6]):
-        row = 3 + i
+        row = 5 + i
         ticker = peer.get("identifier")
         q = qualitative.get(ticker, {})
-        comp[f"A{row}"] = _safe(ticker)
-        comp[f"B{row}"] = _safe(peer.get("company_name"))
-        comp[f"C{row}"] = _safe(q.get("core_business_model"))
-        comp[f"D{row}"] = _safe(q.get("product_focus"))
-        comp[f"E{row}"] = _safe(q.get("similarity"))
-        comp[f"F{row}"] = _safe(q.get("comparison_points"))
-        comp[f"G{row}"] = _safe(q.get("differentiation_points"))
+        comp[f"C{row}"] = _safe(ticker)
+        comp[f"D{row}"] = _safe(peer.get("company_name"))
+        comp[f"E{row}"] = _safe(q.get("core_business_model"))
+        comp[f"F{row}"] = _safe(q.get("product_focus"))
+        comp[f"G{row}"] = _safe(q.get("similarity"))
+        comp[f"H{row}"] = _safe(q.get("comparison_points"))
+        comp[f"I{row}"] = _safe(q.get("differentiation_points"))
+        comp[f"J{row}"] = _safe(peer.get("country"))
 
     for i, peer in enumerate(selected_peers[:6]):
-        row = 12 + i
+        row = 18 + i
         ticker = peer.get("identifier")
         f = financials.get(ticker, {})
-        comp[f"A{row}"] = _safe(ticker)
-        comp[f"B{row}"] = _safe(f.get("revenue_2023"))
-        comp[f"C{row}"] = _safe(f.get("revenue_2024"))
-        comp[f"D{row}"] = _safe(f.get("revenue_2025"))
-        comp[f"E{row}"] = _safe(f.get("ebitda_2023"))
-        comp[f"F{row}"] = _safe(f.get("ebitda_2024"))
-        comp[f"G{row}"] = _safe(f.get("ebitda_2025"))
+        # C has formula linking to qualitative ticker — skip
+        comp[f"D{row}"] = _safe(f.get("revenue_2021"))
+        comp[f"E{row}"] = _safe(f.get("ebitda_2021"))
+        comp[f"G{row}"] = _safe(f.get("revenue_2022"))
+        comp[f"H{row}"] = _safe(f.get("ebitda_2022"))
+        comp[f"J{row}"] = _safe(f.get("revenue_2023"))
+        comp[f"K{row}"] = _safe(f.get("ebitda_2023"))
+        comp[f"M{row}"] = _safe(f.get("revenue_2024"))
+        comp[f"N{row}"] = _safe(f.get("ebitda_2024"))
 
     cells["Comparison"] = comp
 
@@ -251,32 +252,32 @@ def _preview_phase3(deep_dive, lseg_parsed_peers, selected_peers, deal_code, cli
     hist["C4"] = _safe(latest_year)
     hist["C5"] = "THB (actual / millions as noted)"
 
-    # V2: Annual data mapped to Q4 columns (2023-2025 only):
-    #   2023 Q4 = col H, 2024 Q4 = col L, 2025 Q4 = col P
-    years_q4_cols = [
-        ("2023", "H"), ("2024", "L"), ("2025", "P"),
+    # Actual template: annual data columns 2021→D, 2022→E, 2023→F, 2024→G, 2025→H
+    years_annual_cols = [
+        ("2021", "D"), ("2022", "E"), ("2023", "F"), ("2024", "G"), ("2025", "H"),
     ]
 
-    for i, peer in enumerate(selected_peers[:7]):
+    for i, peer in enumerate(selected_peers[:6]):
         ticker = peer.get("identifier")
         lseg = _lseg_peer(lseg_by_ticker, ticker, peer.get("company_name"))
 
-        # EV/EBITDA rows start at 10 (V2 template: rows 10-16)
-        r1 = 10 + i
+        # EV/EBITDA rows 9-14
+        r1 = 9 + i
+        hist[f"B{r1}"] = _safe(peer.get("company_name"))
         hist[f"C{r1}"] = _safe(ticker)
         ev_ebitda = lseg.get("ev_ebitda", {}) or {}
-        for year, col in years_q4_cols:
+        for year, col in years_annual_cols:
             v = ev_ebitda.get(year)
             hist[f"{col}{r1}"] = _safe(v)
 
-        r2 = 23 + i  # P/E rows 23-29
+        r2 = 20 + i  # P/E rows 20-25
         pe = lseg.get("pe", {}) or {}
-        for year, col in years_q4_cols:
+        for year, col in years_annual_cols:
             hist[f"{col}{r2}"] = _safe(pe.get(year))
 
-        r3 = 34 + i  # EV/Revenue rows 34-40
+        r3 = 31 + i  # EV/Revenue rows 31-36
         ev_rev = lseg.get("ev_revenue", {}) or {}
-        for year, col in years_q4_cols:
+        for year, col in years_annual_cols:
             hist[f"{col}{r3}"] = _safe(ev_rev.get(year))
 
     cells["Appendix_Hist_Trading_Performan"] = hist
@@ -285,7 +286,7 @@ def _preview_phase3(deep_dive, lseg_parsed_peers, selected_peers, deal_code, cli
 
 def _preview_phase35(transactions):
     sheet = {}
-    for i, tx in enumerate(transactions[:10]):
+    for i, tx in enumerate(transactions[:7]):
         row = 9 + i  # header at row 8, data starts row 9
         sheet[f"B{row}"] = _safe(tx.get("target") or tx.get("Target Full Name"))
         sheet[f"C{row}"] = _safe(tx.get("acquirer") or tx.get("Acquiror Full Name"))

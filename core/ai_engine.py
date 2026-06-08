@@ -149,26 +149,19 @@ def extract_financials_and_business_model(company_files, financial_files, availa
     │  Row 8: TOTAL REVENUE = Row 6 + Row 7          [FORMULA]          │
     ├─ COST OF SALES ────────────────────────────────────────────────────┤
     │  Row 11: cost_of_goods_sold     ← Direct costs of production      │
-    │  Row 12: TOTAL COGS = SUM(Row 11)              [FORMULA]          │
-    │  Row 14: GROSS PROFIT = Row 8 − Row 12         [FORMULA]          │
+    │  Row 14: GROSS PROFIT = Row 8 − Row 11         [FORMULA]          │
     ├─ OPERATING EXPENSES ───────────────────────────────────────────────┤
     │  Row 18: sales_expenses         ← Selling & distribution costs    │
     │  Row 19: administrative_expenses← G&A, office, salaries, etc.     │
-    │  Row 20: CEO Salary (Normalised)← Filled manually, not by you     │
-    │  Row 21: TOTAL OpEx = SUM(Row 18:20)           [FORMULA]          │
-    │  Row 23: EBITDA = Row 14 − Row 21              [FORMULA]          │
-    ├─ BELOW EBITDA ─────────────────────────────────────────────────────┤
-    │  Row 26: depreciation_amortization ← D&A                          │
-    │  Row 27: EBIT = Row 23 − Row 26               [FORMULA]          │
-    │  Row 30: interest_expenses      ← Finance costs / debt service    │
-    │  Row 31: EBT = Row 27 − Row 30                [FORMULA]          │
-    │  Row 34: tax                    ← Income tax expense              │
-    │  Row 35: NET PROFIT = Row 31 − Row 34          [FORMULA]          │
-    ├─ EBITDA ADD-BACK (M&A Normalisation) ──────────────────────────────┤
-    │  Row 38: CEO Salary Add-Back    ← Filled manually after generation│
-    │  Row 39: Other Non-recurring    ← One-time items (default 0)      │
-    │  Row 40: Total Add-Back = SUM(Row 38:39)       [FORMULA]          │
-    │  Row 41: Adjusted EBITDA = Row 23 + Row 40     [FORMULA]          │
+    │  Row 20: other_expenses         ← Non-recurring charges, etc.     │
+    │  Row 24: EBIT = Row 14 − OpEx                  [FORMULA]          │
+    ├─ BELOW EBIT ───────────────────────────────────────────────────────┤
+    │  Row 27: depreciation_amortization ← D&A                          │
+    │  Row 28: EBITDA = Row 24 + Row 27              [FORMULA]          │
+    │  Row 32: interest_expenses      ← Finance costs / debt service    │
+    │  Row 33: EBT = Row 24 − Row 32                [FORMULA]          │
+    │  Row 36: tax                    ← Income tax expense              │
+    │  Row 39: NET PROFIT = Row 33 − Row 36          [FORMULA]          │
     └────────────────────────────────────────────────────────────────────┘
 
     SIGN CONVENTION: ALL 9 values must be POSITIVE numbers (absolute values).
