@@ -872,8 +872,10 @@ def select_precedent_transactions(client_data, parsed_transactions, notes: str =
     Sub-sector: {specific_subsector}
     Geography: {operating_geography}
     {notes_block}
-    Below is a list of {pool_size} M&A transactions from LSEG. Select the TOP {select_count} most relevant transactions.
-    You MUST return at least 1 transaction — do NOT return an empty list.
+    Below is a list of {pool_size} M&A transactions from LSEG. Select EXACTLY {select_count} transactions.
+    You MUST return exactly {select_count} transactions — no fewer. If some transactions are less relevant
+    or have missing data, include them anyway and explain the limitations in notes_and_caveats.
+    Do NOT return an empty list or fewer than {select_count} results.
 
     SELECTION CRITERIA (in priority order):
     1. REGION: Thailand > ASEAN > APAC > Global
