@@ -841,7 +841,9 @@ def select_precedent_transactions(client_data, parsed_transactions, notes: str =
     
     # We slice to first 50 transactions to avoid context length explosion
     tx_json = json.dumps(parsed_transactions[:50], indent=2, default=str)
-    
+    pool_size = len(parsed_transactions)
+    select_count = min(10, pool_size)
+
     notes_block = ""
     if notes and notes.strip():
         notes_block = f"""
@@ -849,6 +851,18 @@ def select_precedent_transactions(client_data, parsed_transactions, notes: str =
     {notes.strip()}
     ───────────────────────────────────────────────────────────
 """
+
+    if pool_size <= 30:
+        data_rule = (
+            "4. DATA COMPLETENESS: Prefer transactions with both Deal Value and EV/EBITDA, "
+            "but DO NOT skip transactions just because one value is missing — "
+            "include them and note 'missing EV/EBITDA' or 'missing deal value' in notes_and_caveats"
+        )
+    else:
+        data_rule = (
+            "4. DATA COMPLETENESS: MUST have both Deal Value and EV/EBITDA available — "
+            "skip transactions missing either"
+        )
 
     prompt = f"""
     You are selecting the most relevant precedent M&A transactions for a comparable valuation.
@@ -858,13 +872,14 @@ def select_precedent_transactions(client_data, parsed_transactions, notes: str =
     Sub-sector: {specific_subsector}
     Geography: {operating_geography}
     {notes_block}
-    Below is a list of M&A transactions from LSEG. Select the TOP 10 most relevant transactions.
+    Below is a list of {pool_size} M&A transactions from LSEG. Select the TOP {select_count} most relevant transactions.
+    You MUST return at least 1 transaction — do NOT return an empty list.
 
     SELECTION CRITERIA (in priority order):
     1. REGION: Thailand > ASEAN > APAC > Global
     2. INDUSTRY RELEVANCE: How closely the target company's business matches the subject
     3. DEAL SIZE: Prefer transactions in comparable size range
-    4. DATA COMPLETENESS: MUST have both Deal Value and EV/EBITDA available — skip transactions missing either
+    {data_rule}
     5. RECENCY: More recent transactions preferred
 
     TRANSACTIONS:
@@ -872,7 +887,7 @@ def select_precedent_transactions(client_data, parsed_transactions, notes: str =
 
     For each selected transaction, generate:
     - relevance: 1-2 sentences explaining why this transaction is relevant to {deal_code}
-    - notes_and_caveats: Key considerations (size mismatch, strategic premium, distressed, etc.)
+    - notes_and_caveats: Key considerations (size mismatch, strategic premium, distressed, missing data, etc.)
 
     Return JSON:
     {{

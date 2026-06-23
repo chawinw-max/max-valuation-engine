@@ -149,13 +149,23 @@ def render_phase3():
                             if is_pdf:
                                 st.info(f"Extracted {len(parsed_txs)} transactions from PDF.")
 
-                            client_data = st.session_state.phase1_data
-                            tx_result = select_precedent_transactions(
-                                client_data, parsed_txs,
-                                notes=st.session_state.get("phase35_notes", "")
-                            )
-                            st.session_state.selected_transactions = tx_result.get('selected_transactions', [])
-                            st.rerun()
+                            if not parsed_txs:
+                                st.warning("No transactions found in the uploaded file. Check the file format.")
+                            else:
+                                client_data = st.session_state.phase1_data
+                                tx_result = select_precedent_transactions(
+                                    client_data, parsed_txs,
+                                    notes=st.session_state.get("phase35_notes", "")
+                                )
+                                selected = tx_result.get('selected_transactions', [])
+                                if not selected:
+                                    st.warning(
+                                        f"Gemini could not select relevant transactions from the {len(parsed_txs)} "
+                                        f"parsed deals. Try adding Notes for AI to broaden selection criteria."
+                                    )
+                                else:
+                                    st.session_state.selected_transactions = selected
+                                    st.rerun()
             
             if "selected_transactions" in st.session_state:
                 st.success("Top transactions selected!")
