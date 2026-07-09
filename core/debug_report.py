@@ -206,7 +206,7 @@ def _preview_phase2(selected_peers, not_selected_peers, rejection_rationales):
         furniture[f"F{row}"] = _safe(peer.get("market_cap_thb_m"))
         furniture[f"G{row}"] = _safe(rejection_rationales.get(ticker, "Not a strong fit"))
 
-    return {"Furniture": furniture}
+    return {"Comps_Profile": furniture}
 
 
 def _preview_phase3(deep_dive, lseg_parsed_peers, selected_peers, deal_code, client_name, latest_year):
@@ -230,27 +230,50 @@ def _preview_phase3(deep_dive, lseg_parsed_peers, selected_peers, deal_code, cli
         comp[f"I{row}"] = _safe(q.get("differentiation_points"))
         comp[f"J{row}"] = _safe(peer.get("country"))
 
+    # Financial rows 18-23 — FIVE year blocks (Revenue/EBITDA/Margin formula):
+    #   2021: D/E/F, 2022: G/H/I, 2023: J/K/L, 2024: M/N/O, 2025: P/Q/R
+    year_blocks = [
+        ("2021", "D", "E", "F"), ("2022", "G", "H", "I"),
+        ("2023", "J", "K", "L"), ("2024", "M", "N", "O"),
+        ("2025", "P", "Q", "R"),
+    ]
     for i, peer in enumerate(selected_peers[:6]):
         row = 18 + i
         ticker = peer.get("identifier")
         f = financials.get(ticker, {})
         # C has formula linking to qualitative ticker — skip
-        comp[f"D{row}"] = _safe(f.get("revenue_2021"))
-        comp[f"E{row}"] = _safe(f.get("ebitda_2021"))
-        comp[f"G{row}"] = _safe(f.get("revenue_2022"))
-        comp[f"H{row}"] = _safe(f.get("ebitda_2022"))
-        comp[f"J{row}"] = _safe(f.get("revenue_2023"))
-        comp[f"K{row}"] = _safe(f.get("ebitda_2023"))
-        comp[f"M{row}"] = _safe(f.get("revenue_2024"))
-        comp[f"N{row}"] = _safe(f.get("ebitda_2024"))
+        for year, rev_c, ebitda_c, margin_c in year_blocks:
+            rev = f.get(f"revenue_{year}")
+            ebitda = f.get(f"ebitda_{year}")
+            comp[f"{rev_c}{row}"] = _safe(rev)
+            comp[f"{ebitda_c}{row}"] = _safe(ebitda)
+            if rev is not None and ebitda is not None:
+                comp[f"{margin_c}{row}"] = f'=IFERROR({ebitda_c}{row}/{rev_c}{row},"")'
 
     cells["Comparison"] = comp
 
-    # Appendix Hist Trading Performan tab
+    # Summary peer multiples table — rows 29-34
+    # C=ticker, E-I=EV/EBITDA 2021-2025, J-N=EV/Revenue, O-S=P/E
+    summary_peers = {}
+    summary_years = ["2021", "2022", "2023", "2024", "2025"]
+    metric_start_cols = [("ev_ebitda", 5), ("ev_revenue", 10), ("pe", 15)]
+    from openpyxl.utils import get_column_letter
+    for i, peer in enumerate(selected_peers[:6]):
+        row = 29 + i
+        ticker = peer.get("identifier")
+        summary_peers[f"C{row}"] = _safe(ticker)
+        lseg = _lseg_peer(lseg_by_ticker, ticker, peer.get("company_name"))
+        for metric, start_col in metric_start_cols:
+            values = lseg.get(metric, {}) or {}
+            for y_idx, year in enumerate(summary_years):
+                v = values.get(year)
+                if v is not None:
+                    summary_peers[f"{get_column_letter(start_col + y_idx)}{row}"] = _safe(v)
+    cells["Summary_Peer_Multiples"] = summary_peers
+
+    # Appendix Hist Trading Performance tab
     hist = {}
     hist["B2"] = f"Project {deal_code} - {client_name} Comps Tables"
-    hist["C4"] = _safe(latest_year)
-    hist["C5"] = "THB (actual / millions as noted)"
 
     # Actual template: annual data columns 2021→D, 2022→E, 2023→F, 2024→G, 2025→H
     years_annual_cols = [
@@ -302,12 +325,9 @@ def _preview_phase35(transactions):
 def _preview_phase4(data, latest_year):
     deal_code = data.get("deal_code", "DF-XXX")
     client_name = data.get("client_name", "Company")
-    bm = data.get("business_model", {}) or {}
-    legal_name = (bm.get("section_a", {}) or {}).get("company_name") or client_name
     return {
         "Summary": {
-            "B2": f"Project {deal_code} – {client_name} ({legal_name}) Comps Tables",
-            "D3": f"From {latest_year}",
+            "B2": f"{deal_code} {client_name} - Comps Tables",
         }
     }
 
@@ -391,8 +411,10 @@ def _audit_nulls(phase1, lseg_parsed_peers, deep_dive, available_years):
     dd_nulls = []
     for row in (deep_dive.get("financials_comparison") or []):
         ticker = row.get("identifier", "?")
-        for field in ["revenue_2023", "revenue_2024", "revenue_2025",
-                      "ebitda_2023", "ebitda_2024", "ebitda_2025"]:
+        for field in ["revenue_2021", "revenue_2022", "revenue_2023",
+                      "revenue_2024", "revenue_2025",
+                      "ebitda_2021", "ebitda_2022", "ebitda_2023",
+                      "ebitda_2024", "ebitda_2025"]:
             if row.get(field) is None:
                 dd_nulls.append(f"{ticker}.{field}")
     report["deep_dive_financials_nulls"] = dd_nulls

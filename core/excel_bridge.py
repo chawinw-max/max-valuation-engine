@@ -161,21 +161,30 @@ def _clear_cell(sheet, cell_coord):
     cell.value = None
 
 
+def _get_sheet(workbook, *names):
+    """Return the first sheet matching any of the given names, or None.
+    Handles the July 2026 template rename (numbered prefixes)."""
+    for n in names:
+        if n in workbook.sheetnames:
+            return workbook[n]
+    return None
+
+
 def inject_phase1_data(workbook, data, available_years):
     """
     Injects Phase 1 data (Preliminary P&L and Business Model) into the workbook.
     `data` is the JSON parsed dict from Gemini.
     """
     # 1. Preliminary P&L
-    if 'Preliminary P&L' in workbook.sheetnames:
-        sheet = workbook['Preliminary P&L']
+    sheet = _get_sheet(workbook, '2. Preliminary P&L', 'Preliminary P&L')
+    if sheet is not None:
 
         # B2: Currency label
         _safe_write(sheet, 'B2', "Currency : Thai Baht")
 
         # B3: Source description
         years_str = "-".join(map(str, available_years))
-        _safe_write(sheet, 'B3', f"{data.get('client_name', 'Company')} — Management Accounts ({years_str})")
+        _safe_write(sheet, 'B3', f"Source : {data.get('client_name', 'Company')} Financial Statements ({years_str})")
 
         financials = data.get('financials', {})
 
@@ -216,9 +225,9 @@ def inject_phase1_data(workbook, data, available_years):
                 if val is not None:
                     _safe_write(sheet, f'{col_letter}{row_num}', val)
 
-    # 2. Business Model (OLD template — 6-section layout: A through F)
-    if 'Business Model' in workbook.sheetnames:
-        sheet = workbook['Business Model']
+    # 2. Business Model (6-section layout: A through F)
+    sheet = _get_sheet(workbook, '1. Business Model', 'Business Model')
+    if sheet is not None:
         bm = data.get('business_model', {})
         client_name_bm = data.get('client_name', 'Company')
 
@@ -242,7 +251,12 @@ def inject_phase1_data(workbook, data, available_years):
             _safe_write(sheet, f'B{16+i}', sec_b.get(field))
 
         # Section C: rows 25-30 (moats, A=title, B=description)
+        # Clear all 6 slots first — the template ships with sample moats and a
+        # shorter moat list would otherwise leave stale sample rows behind.
         sec_c = bm.get('section_c', []) or []
+        for i in range(6):
+            _safe_write(sheet, f'A{25+i}', None)
+            _safe_write(sheet, f'B{25+i}', None)
         for i, moat in enumerate(sec_c[:6]):
             _safe_write(sheet, f'A{25+i}', moat.get('title'))
             _safe_write(sheet, f'B{25+i}', moat.get('description'))
@@ -271,12 +285,15 @@ def inject_phase1_data(workbook, data, available_years):
 
 def inject_phase2_data(workbook, selected_peers, not_selected_peers, rejection_rationales):
     """
-    Furniture tab: selected peers in rows 3–8 (and row 9 if 7 selected),
-    not-selected peers in rows 11+. Columns A–G.
+    Comps Profile tab (formerly 'Furniture'):
+      Row 1 headers: A=Identifier, B=Company Name, C=TRBC Activity,
+                     D=Country, E=Business Description, F=Market Cap
+      Row 2:  'Selected' band + G2 'Reasoning'  → selected peers rows 3–9
+      Row 10: 'Not Selected' band + G10 'Reasoning' → not-selected rows 11+
     """
-    if 'Furniture' not in workbook.sheetnames:
+    sheet = _get_sheet(workbook, 'Comps Profile', 'Furniture')
+    if sheet is None:
         return
-    sheet = workbook['Furniture']
 
     # Selected peers — first 7 fit in rows 3–9
     for i, peer in enumerate(selected_peers[:7]):
@@ -313,10 +330,11 @@ def inject_phase3_data(workbook, deep_dive, lseg_parsed_peers, selected_peers, d
     lseg_by_ticker = _build_lseg_lookup(lseg_parsed_peers)
 
     # ----- Comparison tab -----
-    if 'Comparison' in workbook.sheetnames:
-        sheet = workbook['Comparison']
+    sheet = _get_sheet(workbook, '3. Comparison', 'Comparison')
+    if sheet is not None:
 
-        # Qualitative — rows 5–10, columns C–J (max 6 peers)
+        # Section I. Peers Profile — rows 5–10, columns C–J (max 6 peers)
+        # Column K (Adjustment to Peer Multiple) is an XLOOKUP formula — don't touch.
         for i, peer in enumerate(selected_peers[:6]):
             row = 5 + i
             ticker = peer.get('identifier')
@@ -330,45 +348,73 @@ def inject_phase3_data(workbook, deep_dive, lseg_parsed_peers, selected_peers, d
             _safe_write(sheet, f'I{row}', q.get('differentiation_points'))
             _safe_write(sheet, f'J{row}', peer.get('country'))
 
-        # Financial — rows 18–23, columns C–N (max 6 peers)
-        # Clear old IF(MATCH) formulas before writing
+        # Section II. Peers Financial Profile — rows 18–23 (max 6 peers)
+        # FIVE year blocks (Revenue col, EBITDA col, Margin col):
+        #   2021: D/E/F, 2022: G/H/I, 2023: J/K/L, 2024: M/N/O, 2025: P/Q/R
+        # C column has =C5..=C10 formulas linking to Section I tickers — skip C.
+        year_blocks = [
+            ('2021', 'D', 'E', 'F'), ('2022', 'G', 'H', 'I'),
+            ('2023', 'J', 'K', 'L'), ('2024', 'M', 'N', 'O'),
+            ('2025', 'P', 'Q', 'R'),
+        ]
+
+        # Clear all peer input cells first
         for i in range(6):
             row = 18 + i
-            for col in ('D', 'E', 'G', 'H', 'J', 'K', 'M', 'N'):
-                _force_write(sheet, f'{col}{row}', None)
+            for _, rev_c, ebitda_c, margin_c in year_blocks:
+                _force_write(sheet, f'{rev_c}{row}', None)
+                _force_write(sheet, f'{ebitda_c}{row}', None)
+                _force_write(sheet, f'{margin_c}{row}', None)
 
         for i, peer in enumerate(selected_peers[:6]):
             row = 18 + i
             ticker = peer.get('identifier')
             f = financials.get(ticker, {})
-            # C has =C5..=C10 formulas linking to qualitative ticker — skip C
-            # 4 years of Revenue + EBITDA: D/E=2021, G/H=2022, J/K=2023, M/N=2024
-            _force_write(sheet, f'D{row}', f.get('revenue_2021'))
-            _force_write(sheet, f'E{row}', f.get('ebitda_2021'))
-            _force_write(sheet, f'G{row}', f.get('revenue_2022'))
-            _force_write(sheet, f'H{row}', f.get('ebitda_2022'))
-            _force_write(sheet, f'J{row}', f.get('revenue_2023'))
-            _force_write(sheet, f'K{row}', f.get('ebitda_2023'))
-            _force_write(sheet, f'M{row}', f.get('revenue_2024'))
-            _force_write(sheet, f'N{row}', f.get('ebitda_2024'))
+            for year, rev_c, ebitda_c, margin_c in year_blocks:
+                rev = f.get(f'revenue_{year}')
+                ebitda = f.get(f'ebitda_{year}')
+                _force_write(sheet, f'{rev_c}{row}', rev)
+                _force_write(sheet, f'{ebitda_c}{row}', ebitda)
+                # Margin column feeds the Scale Discount premium (rows 33-36)
+                if rev is not None and ebitda is not None:
+                    _force_write(
+                        sheet, f'{margin_c}{row}',
+                        f'=IFERROR({ebitda_c}{row}/{rev_c}{row},"")'
+                    )
 
-    # ----- Summary tab — peer tickers (rows 29-34) -----
-    # The Summary peer table has IF formulas that look up data from the Appendix
-    # based on the ticker in column C.  Without tickers, IF returns FALSE.
-    if 'Summary' in workbook.sheetnames:
-        summary = workbook['Summary']
+    # ----- Summary tab — peer multiples table (rows 29-34) -----
+    # C = ticker; E-I = EV/EBITDA 2021-2025; J-N = EV/Revenue; O-S = P/E.
+    # These are INPUT cells feeding the Multiples Summary (I7:N11 TRANSPOSE
+    # array formulas) and the Median/Average rows 35-36.
+    # D column (Country) is an XLOOKUP formula — don't touch.
+    summary = _get_sheet(workbook, '0. Summary', 'Summary')
+    if summary is not None:
+        summary_years = ['2021', '2022', '2023', '2024', '2025']
+        metric_start_cols = [
+            ('ev_ebitda', 5),    # E-I  (col 5-9)
+            ('ev_revenue', 10),  # J-N  (col 10-14)
+            ('pe', 15),          # O-S  (col 15-19)
+        ]
         for i, peer in enumerate(selected_peers[:6]):
             row = 29 + i
-            _safe_write(summary, f'C{row}', peer.get('identifier'))
+            ticker = peer.get('identifier')
+            _safe_write(summary, f'C{row}', ticker)
+            lseg = _lseg_peer(lseg_by_ticker, ticker, peer.get('company_name'))
+            for metric, start_col in metric_start_cols:
+                values = lseg.get(metric, {}) or {}
+                for y_idx, year in enumerate(summary_years):
+                    v = values.get(year)
+                    if v is not None:
+                        col_letter = get_column_letter(start_col + y_idx)
+                        _safe_write(summary, f'{col_letter}{row}', v)
 
-    # ----- Appendix Hist Trading Performan tab -----
-    if 'Appendix Hist Trading Performan' in workbook.sheetnames:
-        sheet = workbook['Appendix Hist Trading Performan']
+    # ----- Appendix Hist Trading Performance tab -----
+    sheet = _get_sheet(workbook, '4. Appendix Hist Trading Perfor',
+                       'Appendix Hist Trading Performan')
+    if sheet is not None:
 
-        # Header inputs
+        # Header inputs (C4 is =TODAY() in the new template — don't touch)
         _safe_write(sheet, 'B2', f"Project {deal_code} - {client_name} Comps Tables")
-        _safe_write(sheet, 'C4', latest_year)
-        _safe_write(sheet, 'C5', "THB (actual / millions as noted)")
 
         # Actual template structure (annual layout):
         #   EV/EBITDA: 6 peer rows at 9-14
@@ -449,14 +495,10 @@ def inject_phase35_data(workbook, transactions, deal_code):
                  F=relevance, G=deal_value_usd_m, H=ev_ebitda, I=notes
     Default header at row 8, data starts at row 9.
     """
-    sheet_name = None
-    for candidate in ('Precedent Transactions', 'Precedent Tx', 'Precedent_Transactions'):
-        if candidate in workbook.sheetnames:
-            sheet_name = candidate
-            break
-    if sheet_name is None:
+    sheet = _get_sheet(workbook, '5. Precedent Transactions',
+                       'Precedent Transactions', 'Precedent Tx', 'Precedent_Transactions')
+    if sheet is None:
         return
-    sheet = workbook[sheet_name]
 
     # Locate header row by scanning rows 1-15 for "Target" + "Acquir" markers
     header_row = None
@@ -468,10 +510,13 @@ def inject_phase35_data(workbook, transactions, deal_code):
             header_row = r
             break
     if header_row is None:
-        header_row = 8  # OLD template default
+        header_row = 8  # template default
 
-    # Clear demo data rows (header_row+1 through header_row+7, columns B-I)
-    for r in range(header_row + 1, header_row + 8):
+    # Update the Relevance header (template ships with a sample client name)
+    _safe_write(sheet, f'F{header_row}', f"Relevance to {deal_code}")
+
+    # Clear demo data rows (template ships with up to ~9 sample deals)
+    for r in range(header_row + 1, header_row + 13):
         for c_letter in ('B', 'C', 'D', 'E', 'F', 'G', 'H', 'I'):
             cell = sheet[f'{c_letter}{r}']
             v = cell.value
@@ -507,20 +552,12 @@ def inject_phase4_data(workbook, data, latest_year):
     via formulas that auto-calculate from the P&L and Appendix data.
     Only write the project title and latest year reference.
     """
-    if 'Summary' not in workbook.sheetnames:
+    sheet = _get_sheet(workbook, '0. Summary', 'Summary')
+    if sheet is None:
         return
-    sheet = workbook['Summary']
 
     deal_code = data.get('deal_code', 'DF-XXX')
     client_name = data.get('client_name', 'Company')
-    bm = data.get('business_model', {})
-    legal_name = (
-        (bm.get('section_a', {}) or {}).get('company_name')
-        or client_name
-    )
 
-    # B2: Project title
-    _safe_write(sheet, 'B2', f"Project {deal_code} – {client_name} ({legal_name}) Comps Tables")
-
-    # D3: Latest year reference
-    _safe_write(sheet, 'D3', f"From {latest_year}")
+    # B2: Project title ("DF[XXX] [Code Name] - Comps Tables" in the template)
+    _safe_write(sheet, 'B2', f"{deal_code} {client_name} - Comps Tables")

@@ -786,9 +786,9 @@ def generate_deep_dive(client_overview, selected_peers, notes: str = ""):
     TARGET COMPANY: {client_overview}
     {notes_block}
     For each selected peer, write a qualitative comparison to the target company.
-    Then, provide Revenue and EBITDA for 2023, 2024, and 2025.
+    Then, provide Revenue and EBITDA for each year 2021 through 2025.
     All figures in MILLIONS THB. Convert from other currencies if needed, stating the rate.
-    If 2025 is unavailable, use LTM or null.
+    If a year is unavailable, use null. If 2025 is unavailable, use LTM or null.
     Do NOT include Country — it's auto-calculated by the template.
     
     SELECTED PEERS:
@@ -810,8 +810,10 @@ def generate_deep_dive(client_overview, selected_peers, notes: str = ""):
       "financials_comparison": [
         {{
           "identifier": "TICKER",
-          "revenue_2023": 95.5, "revenue_2024": 102.3, "revenue_2025": 110.0,
-          "ebitda_2023": 12.1, "ebitda_2024": 14.5, "ebitda_2025": 16.2
+          "revenue_2021": 88.0, "revenue_2022": 91.2, "revenue_2023": 95.5,
+          "revenue_2024": 102.3, "revenue_2025": 110.0,
+          "ebitda_2021": 10.5, "ebitda_2022": 11.0, "ebitda_2023": 12.1,
+          "ebitda_2024": 14.5, "ebitda_2025": 16.2
         }}
       ]
     }}
