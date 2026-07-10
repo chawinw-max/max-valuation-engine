@@ -2,7 +2,7 @@ import math
 import re
 import openpyxl
 from openpyxl.cell.cell import MergedCell
-from openpyxl.utils import get_column_letter
+from openpyxl.utils import get_column_letter, column_index_from_string
 
 
 def _normalize_ticker(ticker: str) -> str:
@@ -170,35 +170,61 @@ def _get_sheet(workbook, *names):
     return None
 
 
+def _detect_year_columns(sheet, header_row=3, min_col=2, max_col=14):
+    """
+    Map year (int) -> column letter by scanning a header row for year values.
+    Robust to the template shifting year columns (e.g., P&L years moved from
+    C-G to D-H when the FCF section was added).
+    """
+    mapping = {}
+    for col in range(min_col, max_col + 1):
+        v = sheet.cell(row=header_row, column=col).value
+        try:
+            y = int(float(v))
+        except (TypeError, ValueError):
+            continue
+        if 2000 <= y <= 2100:
+            mapping[y] = get_column_letter(col)
+    return mapping
+
+
 def inject_phase1_data(workbook, data, available_years):
     """
     Injects Phase 1 data (Preliminary P&L and Business Model) into the workbook.
     `data` is the JSON parsed dict from Gemini.
     """
     # 1. Preliminary P&L
-    sheet = _get_sheet(workbook, '2. Preliminary P&L', 'Preliminary P&L')
-    if sheet is not None:
+    pnl = _get_sheet(workbook, '2. Preliminary P&L', 'Preliminary P&L')
+    pnl_year_col = {}
+    if pnl is not None:
+        sheet = pnl
 
-        # B2: Currency label
-        _safe_write(sheet, 'B2', "Currency : Thai Baht")
+        # Year columns are detected from the row-3 header (D-H in the current
+        # template — they shifted right when the FCF section was added).
+        pnl_year_col = _detect_year_columns(sheet, header_row=3)
+        if not pnl_year_col:
+            pnl_year_col = {2021: 'D', 2022: 'E', 2023: 'F', 2024: 'G', 2025: 'H'}
 
-        # B3: Source description
+        # Currency/source labels sit in the column left of the first year col,
+        # rows 2 and 3 (C2/C3 in the current template).
+        first_year_col_idx = min(
+            column_index_from_string(c) for c in pnl_year_col.values()
+        )
+        label_col = get_column_letter(first_year_col_idx - 1)
         years_str = "-".join(map(str, available_years))
-        _safe_write(sheet, 'B3', f"Source : {data.get('client_name', 'Company')} Financial Statements ({years_str})")
+        _safe_write(sheet, f'{label_col}2', "Currency : Thai Baht")
+        _safe_write(sheet, f'{label_col}3',
+                    f"Source : {data.get('client_name', 'Company')} Financial Statements ({years_str})")
 
         financials = data.get('financials', {})
 
-        # Actual template row map (EBIT-first layout):
+        # P&L row map (EBIT-first layout — rows unchanged across template revs):
         #   Row 6: Sales, Row 7: Other Rev, Row 8: Total Rev [FORMULA]
         #   Row 11: COGS, Row 14: GP [FORMULA]
         #   Row 18: Sales Exp, Row 19: Admin Exp, Row 20: Other Exp
-        #   Row 24: EBIT = GP - OpEx [FORMULA]
-        #   Row 27: D&A (B27='Depreciation and Amortization')
-        #   Row 28: EBITDA = EBIT + D&A [FORMULA]
-        #   Row 32: Interest (B32='Interest Expeneses')
-        #   Row 33: EBT = EBIT - Interest [FORMULA]
-        #   Row 36: Tax (B36='Tax')
-        #   Row 39: NP = EBT - Tax [FORMULA]
+        #   Row 24: EBIT [FORMULA], Row 27: D&A, Row 28: EBITDA [FORMULA]
+        #   Row 32: Interest, Row 33: EBT [FORMULA]
+        #   Row 36: Tax, Row 39: NP [FORMULA]
         row_map = {
             'sales_and_services': 6,
             'other_revenues': 7,
@@ -211,19 +237,72 @@ def inject_phase1_data(workbook, data, available_years):
             'tax': 36,
         }
 
-        # Template has FIXED year-to-column mapping (Summary formulas depend on it):
-        #   C=2021, D=2022, E=2023, F=2024, G=2025
-        # Year labels are already pre-filled — don't overwrite them.
-        year_col = {2021: 'C', 2022: 'D', 2023: 'E', 2024: 'F', 2025: 'G'}
-
         for year in available_years:
-            col_letter = year_col.get(year)
+            col_letter = pnl_year_col.get(year)
             if not col_letter:
                 continue
             for key, row_num in row_map.items():
                 val = financials.get(key, {}).get(str(year))
                 if val is not None:
                     _safe_write(sheet, f'{col_letter}{row_num}', val)
+
+    # 1b. Balance Sheet (new tab, July 2026) — from AUDITED financial statements
+    bs_sheet = _get_sheet(workbook, '3. Balance Sheet', 'Balance Sheet')
+    bs_year_col = {}
+    if bs_sheet is not None:
+        bs_year_col = _detect_year_columns(bs_sheet, header_row=3)
+        if not bs_year_col:
+            bs_year_col = {2021: 'C', 2022: 'D', 2023: 'E', 2024: 'F', 2025: 'G'}
+
+        balance_sheet = data.get('balance_sheet', {}) or {}
+        if balance_sheet:
+            _safe_write(bs_sheet, 'B3', "Source : Audited Financial Statements")
+
+            # Balance Sheet row map (inputs only — subtotals are formulas):
+            #   Assets: 6 Cash, 7 AR, 8 ST loans receivable, 9 Inventories, 12 PPE net
+            #   Liabilities: 18 AP, 19 ST loans, 20 Other current liab, 23 LT loans
+            #   Equity: 29 Paid-up capital, 30 Retained earnings
+            bs_row_map = {
+                'cash_and_equivalents': 6,
+                'accounts_receivable': 7,
+                'short_term_loans_receivable': 8,
+                'inventories': 9,
+                'ppe_net': 12,
+                'accounts_payable': 18,
+                'short_term_loans': 19,
+                'other_current_liabilities': 20,
+                'long_term_loans': 23,
+                'paid_up_capital': 29,
+                'retained_earnings': 30,
+            }
+            for year in available_years:
+                col_letter = bs_year_col.get(year)
+                if not col_letter:
+                    continue
+                for key, row_num in bs_row_map.items():
+                    val = balance_sheet.get(key, {}).get(str(year))
+                    if val is not None:
+                        _safe_write(bs_sheet, f'{col_letter}{row_num}', val)
+
+    # 1c. P&L Unlevered FCF section (rows 42-60) — link working-capital and
+    # PPE inputs to the Balance Sheet so the FCF waterfall computes.
+    #   Row 51: Accounts receivable  ← BS row 7
+    #   Row 52: Accounts payable     ← BS row 18
+    #   Row 56: Ending PPE           ← BS row 12 (same year)
+    #   Row 57: Beginning PPE        ← BS row 12 (prior year)
+    if (pnl is not None and bs_sheet is not None
+            and str(pnl['B42'].value or '').strip() == 'Free Cash Flow'):
+        bs_title = bs_sheet.title
+        for year in available_years:
+            pcol = pnl_year_col.get(year)
+            bcol = bs_year_col.get(year)
+            if pcol and bcol:
+                _safe_write(pnl, f'{pcol}51', f"='{bs_title}'!{bcol}7")
+                _safe_write(pnl, f'{pcol}52', f"='{bs_title}'!{bcol}18")
+                _safe_write(pnl, f'{pcol}56', f"='{bs_title}'!{bcol}12")
+            prev_bcol = bs_year_col.get(year - 1)
+            if pcol and prev_bcol and (year - 1) in available_years:
+                _safe_write(pnl, f'{pcol}57', f"='{bs_title}'!{prev_bcol}12")
 
     # 2. Business Model (6-section layout: A through F)
     sheet = _get_sheet(workbook, '1. Business Model', 'Business Model')
@@ -330,7 +409,7 @@ def inject_phase3_data(workbook, deep_dive, lseg_parsed_peers, selected_peers, d
     lseg_by_ticker = _build_lseg_lookup(lseg_parsed_peers)
 
     # ----- Comparison tab -----
-    sheet = _get_sheet(workbook, '3. Comparison', 'Comparison')
+    sheet = _get_sheet(workbook, '4. Comparison', '3. Comparison', 'Comparison')
     if sheet is not None:
 
         # Section I. Peers Profile — rows 5–10, columns C–J (max 6 peers)
@@ -382,13 +461,23 @@ def inject_phase3_data(workbook, deep_dive, lseg_parsed_peers, selected_peers, d
                         f'=IFERROR({ebitda_c}{row}/{rev_c}{row},"")'
                     )
 
-    # ----- Summary tab — peer multiples table (rows 29-34) -----
+    # ----- Summary tab — peer multiples table -----
     # C = ticker; E-I = EV/EBITDA 2021-2025; J-N = EV/Revenue; O-S = P/E.
-    # These are INPUT cells feeding the Multiples Summary (I7:N11 TRANSPOSE
-    # array formulas) and the Median/Average rows 35-36.
+    # These are INPUT cells feeding the Multiples Summary (TRANSPOSE array
+    # formulas up top) and the Median/Average rows below the table.
+    # The table has moved between template revisions (rows 29-34, then 33-38),
+    # so locate it by finding the 'Ticker' header in column C.
     # D column (Country) is an XLOOKUP formula — don't touch.
     summary = _get_sheet(workbook, '0. Summary', 'Summary')
     if summary is not None:
+        peer_start_row = None
+        for r in range(20, 45):
+            if str(summary.cell(row=r, column=3).value or '').strip() == 'Ticker':
+                peer_start_row = r + 1
+                break
+        if peer_start_row is None:
+            peer_start_row = 33  # current template default
+
         summary_years = ['2021', '2022', '2023', '2024', '2025']
         metric_start_cols = [
             ('ev_ebitda', 5),    # E-I  (col 5-9)
@@ -396,7 +485,7 @@ def inject_phase3_data(workbook, deep_dive, lseg_parsed_peers, selected_peers, d
             ('pe', 15),          # O-S  (col 15-19)
         ]
         for i, peer in enumerate(selected_peers[:6]):
-            row = 29 + i
+            row = peer_start_row + i
             ticker = peer.get('identifier')
             _safe_write(summary, f'C{row}', ticker)
             lseg = _lseg_peer(lseg_by_ticker, ticker, peer.get('company_name'))
@@ -409,7 +498,8 @@ def inject_phase3_data(workbook, deep_dive, lseg_parsed_peers, selected_peers, d
                         _safe_write(summary, f'{col_letter}{row}', v)
 
     # ----- Appendix Hist Trading Performance tab -----
-    sheet = _get_sheet(workbook, '4. Appendix Hist Trading Perfor',
+    sheet = _get_sheet(workbook, '5. Appendix Hist Trading Perfor',
+                       '4. Appendix Hist Trading Perfor',
                        'Appendix Hist Trading Performan')
     if sheet is not None:
 
@@ -495,7 +585,7 @@ def inject_phase35_data(workbook, transactions, deal_code):
                  F=relevance, G=deal_value_usd_m, H=ev_ebitda, I=notes
     Default header at row 8, data starts at row 9.
     """
-    sheet = _get_sheet(workbook, '5. Precedent Transactions',
+    sheet = _get_sheet(workbook, '6. Precedent Transactions', '5. Precedent Transactions',
                        'Precedent Transactions', 'Precedent Tx', 'Precedent_Transactions')
     if sheet is None:
         return
@@ -561,3 +651,38 @@ def inject_phase4_data(workbook, data, latest_year):
 
     # B2: Project title ("DF[XXX] [Code Name] - Comps Tables" in the template)
     _safe_write(sheet, 'B2', f"{deal_code} {client_name} - Comps Tables")
+
+    # II. Sensitivity Analysis — locate the 'Rationale' header, then populate
+    # the four @EV(M) scenario rows below it. The @EV column is two columns
+    # left of Rationale (G when Rationale is I); the multiple column between
+    # them is formula-driven (=G/$D$5) — don't touch.
+    # Scenario ladder: THB 100M steps centred near the discounted
+    # EBITDA-multiple median implied EV (E14), matching K'Vipin's convention.
+    rationale_cell = None
+    for r in range(10, 30):
+        for c in range(6, 12):
+            if str(sheet.cell(row=r, column=c).value or '').strip() == 'Rationale':
+                rationale_cell = (r, c)
+                break
+        if rationale_cell:
+            break
+    if rationale_cell:
+        hdr_row, rat_col = rationale_cell
+        ev_col = get_column_letter(rat_col - 2)
+        rat_col_letter = get_column_letter(rat_col)
+        seed_row = hdr_row + 1
+        scenarios = [
+            f'=IFERROR(ROUND($E$14,-2)-100,"")',
+            f'=IFERROR({ev_col}{seed_row}+100,"")',
+            f'=IFERROR({ev_col}{seed_row + 1}+100,"")',
+            f'=IFERROR({ev_col}{seed_row + 2}+100,"")',
+        ]
+        rationales = [
+            "Conservative — below the median implied EV from the discounted EBITDA multiple",
+            "Base case — approximately the median implied EV (EBITDA multiple approach)",
+            "Upside — modest premium for growth prospects or buyer synergies",
+            "Ceiling — full strategic premium scenario",
+        ]
+        for i in range(4):
+            _safe_write(sheet, f'{ev_col}{seed_row + i}', scenarios[i])
+            _safe_write(sheet, f'{rat_col_letter}{seed_row + i}', rationales[i])

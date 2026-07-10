@@ -108,6 +108,18 @@ def extract_financials_and_business_model(company_files, financial_files, availa
     - กำไรขั้นต้น = Gross Profit
     - กำไรจากการดำเนินงาน = Operating Profit
 
+    Balance sheet terms:
+    - เงินสดและรายการเทียบเท่าเงินสด = Cash and cash equivalents
+    - ลูกหนี้การค้า = Accounts receivable (trade)
+    - เงินให้กู้ยืมระยะสั้น = Short-term loans receivable
+    - สินค้าคงเหลือ = Inventories
+    - ที่ดิน อาคารและอุปกรณ์ = Property, plant and equipment
+    - เจ้าหนี้การค้า = Accounts payable (trade)
+    - เงินกู้ยืมระยะสั้น = Short-term loans/borrowings
+    - เงินกู้ยืมระยะยาว = Long-term loans/borrowings
+    - ทุนที่ออกและชำระแล้ว = Issued and paid-up capital
+    - กำไรสะสม = Retained earnings
+
     IMPORTANT FOR THAI DOCUMENTS:
     - Thai fiscal years often use Buddhist Era (พ.ศ.). Convert: พ.ศ. 2565 = 2022 CE, พ.ศ. 2566 = 2023, พ.ศ. 2567 = 2024.
     - Numbers may use Thai digits (๐-๙) — convert to Arabic numerals.
@@ -163,6 +175,29 @@ def extract_financials_and_business_model(company_files, financial_files, availa
     │  Row 36: tax                    ← Income tax expense              │
     │  Row 39: NET PROFIT = Row 33 − Row 36          [FORMULA]          │
     └────────────────────────────────────────────────────────────────────┘
+
+
+    TASK 3 — From the AUDITED financial statements ONLY, extract the balance sheet line items
+    below. IMPORTANT: the Balance Sheet must be derived from AUDITED financial statements
+    (งบการเงินที่ตรวจสอบแล้ว), NOT from internal/management accounts. If a year has no audited
+    balance sheet, return null for that year and say so in _verification.notes.
+
+    Balance sheet line items (all POSITIVE numbers, THB units):
+    - cash_and_equivalents: Cash and cash equivalents
+    - accounts_receivable: Trade accounts receivable
+    - short_term_loans_receivable: Short-term loans receivable (asset) — 0 if none
+    - inventories: Inventories, net — 0 if none
+    - ppe_net: Property, plant and equipment, net
+    - accounts_payable: Trade accounts payable
+    - short_term_loans: Short-term borrowings (liability) — 0 if none
+    - other_current_liabilities: Other current liabilities
+    - long_term_loans: Long-term borrowings — 0 if none
+    - paid_up_capital: Issued and paid-up share capital (ทุนที่ออกและชำระแล้ว)
+    - retained_earnings: Retained earnings (accumulated) — may be negative if deficit
+
+    The registered/paid-up capital drives an SME tax-rate formula in the template
+    (SME rate applies when paid-up capital ≤ THB 5M and revenue ≤ THB 30M), so
+    paid_up_capital must be exact.
 
     SIGN CONVENTION: ALL 9 values must be POSITIVE numbers (absolute values).
     The template SUBTRACTS costs automatically via formulas. Do NOT negate expenses.
@@ -283,6 +318,19 @@ def extract_financials_and_business_model(company_files, financial_files, availa
         "depreciation_amortization": {{"2022": 1234567.89, "2023": 1234567.89}},
         "interest_expenses": {{"2022": 1234567.89, "2023": 1234567.89}},
         "tax": {{"2022": 1234567.89, "2023": 1234567.89}}
+      }},
+      "balance_sheet": {{
+        "cash_and_equivalents": {{"2022": 1234567.89, "2023": 1234567.89}},
+        "accounts_receivable": {{"2022": 1234567.89, "2023": 1234567.89}},
+        "short_term_loans_receivable": {{"2022": 0, "2023": 0}},
+        "inventories": {{"2022": 1234567.89, "2023": 1234567.89}},
+        "ppe_net": {{"2022": 1234567.89, "2023": 1234567.89}},
+        "accounts_payable": {{"2022": 1234567.89, "2023": 1234567.89}},
+        "short_term_loans": {{"2022": 0, "2023": 0}},
+        "other_current_liabilities": {{"2022": 1234567.89, "2023": 1234567.89}},
+        "long_term_loans": {{"2022": 0, "2023": 0}},
+        "paid_up_capital": {{"2022": 1000000, "2023": 1000000}},
+        "retained_earnings": {{"2022": 1234567.89, "2023": 1234567.89}}
       }},
       "_verification": {{
         "source_net_profit": {{"2022": null, "2023": null}},

@@ -103,11 +103,11 @@ def _null_fields(obj, path=""):
 def _preview_phase1(data, available_years):
     cells = {}
 
-    # Preliminary P&L
+    # Preliminary P&L — years D-H since the July 2026 FCF revision
     pnl = {}
-    pnl["B2"] = "Currency : Thai Baht"
+    pnl["C2"] = "Currency : Thai Baht"
     years_str = "-".join(map(str, available_years))
-    pnl["B3"] = f"{data.get('client_name', 'Company')} – Audited Financial Statements FY{years_str}"
+    pnl["C3"] = f"Source : {data.get('client_name', 'Company')} Financial Statements ({years_str})"
 
     financials = data.get("financials", {})
     # Actual template row map (EBIT-first layout)
@@ -122,7 +122,7 @@ def _preview_phase1(data, available_years):
         "interest_expenses": 32,
         "tax": 36,
     }
-    year_col = {2021: 'C', 2022: 'D', 2023: 'E', 2024: 'F', 2025: 'G'}
+    year_col = {2021: 'D', 2022: 'E', 2023: 'F', 2024: 'G', 2025: 'H'}
     for year in available_years:
         col = year_col.get(year)
         if not col:
@@ -131,7 +131,47 @@ def _preview_phase1(data, available_years):
             val = financials.get(key, {}).get(str(year))
             pnl[f"{col}{row_num}"] = _safe(val)
 
+    # FCF section working-capital / PPE links to the Balance Sheet
+    bs_year_col = {2021: 'C', 2022: 'D', 2023: 'E', 2024: 'F', 2025: 'G'}
+    for year in available_years:
+        pcol = year_col.get(year)
+        bcol = bs_year_col.get(year)
+        if pcol and bcol:
+            pnl[f"{pcol}51"] = f"='3. Balance Sheet'!{bcol}7"
+            pnl[f"{pcol}52"] = f"='3. Balance Sheet'!{bcol}18"
+            pnl[f"{pcol}56"] = f"='3. Balance Sheet'!{bcol}12"
+        prev_bcol = bs_year_col.get(year - 1)
+        if pcol and prev_bcol and (year - 1) in available_years:
+            pnl[f"{pcol}57"] = f"='3. Balance Sheet'!{prev_bcol}12"
+
     cells["Preliminary_PnL"] = pnl
+
+    # Balance Sheet (new tab)
+    bs_cells = {}
+    balance_sheet = data.get("balance_sheet", {}) or {}
+    if balance_sheet:
+        bs_cells["B3"] = "Source : Audited Financial Statements"
+        bs_row_map = {
+            "cash_and_equivalents": 6,
+            "accounts_receivable": 7,
+            "short_term_loans_receivable": 8,
+            "inventories": 9,
+            "ppe_net": 12,
+            "accounts_payable": 18,
+            "short_term_loans": 19,
+            "other_current_liabilities": 20,
+            "long_term_loans": 23,
+            "paid_up_capital": 29,
+            "retained_earnings": 30,
+        }
+        for year in available_years:
+            col = bs_year_col.get(year)
+            if not col:
+                continue
+            for key, row_num in bs_row_map.items():
+                val = balance_sheet.get(key, {}).get(str(year))
+                bs_cells[f"{col}{row_num}"] = _safe(val)
+    cells["Balance_Sheet"] = bs_cells
 
     # Business Model
     bm_cells = {}
@@ -252,14 +292,14 @@ def _preview_phase3(deep_dive, lseg_parsed_peers, selected_peers, deal_code, cli
 
     cells["Comparison"] = comp
 
-    # Summary peer multiples table — rows 29-34
+    # Summary peer multiples table — rows 33-38 (July 2026 template)
     # C=ticker, E-I=EV/EBITDA 2021-2025, J-N=EV/Revenue, O-S=P/E
     summary_peers = {}
     summary_years = ["2021", "2022", "2023", "2024", "2025"]
     metric_start_cols = [("ev_ebitda", 5), ("ev_revenue", 10), ("pe", 15)]
     from openpyxl.utils import get_column_letter
     for i, peer in enumerate(selected_peers[:6]):
-        row = 29 + i
+        row = 33 + i
         ticker = peer.get("identifier")
         summary_peers[f"C{row}"] = _safe(ticker)
         lseg = _lseg_peer(lseg_by_ticker, ticker, peer.get("company_name"))
@@ -328,6 +368,15 @@ def _preview_phase4(data, latest_year):
     return {
         "Summary": {
             "B2": f"{deal_code} {client_name} - Comps Tables",
+            # II. Sensitivity Analysis — @EV(M) ladder (G15-G18) + rationale (I15-I18)
+            "G15": '=IFERROR(ROUND($E$14,-2)-100,"")',
+            "G16": '=IFERROR(G15+100,"")',
+            "G17": '=IFERROR(G16+100,"")',
+            "G18": '=IFERROR(G17+100,"")',
+            "I15": "Conservative — below the median implied EV from the discounted EBITDA multiple",
+            "I16": "Base case — approximately the median implied EV (EBITDA multiple approach)",
+            "I17": "Upside — modest premium for growth prospects or buyer synergies",
+            "I18": "Ceiling — full strategic premium scenario",
         }
     }
 
@@ -389,6 +438,18 @@ def _audit_nulls(phase1, lseg_parsed_peers, deep_dive, available_years):
             if val is None:
                 fin_nulls.append(f"financials.{key}.{y}")
     report["phase1_financial_nulls"] = fin_nulls
+
+    # Phase 1 balance sheet
+    bs_nulls = []
+    for key in ["cash_and_equivalents", "accounts_receivable", "short_term_loans_receivable",
+                "inventories", "ppe_net", "accounts_payable", "short_term_loans",
+                "other_current_liabilities", "long_term_loans", "paid_up_capital",
+                "retained_earnings"]:
+        for y in available_years:
+            val = (phase1.get("balance_sheet", {}) or {}).get(key, {}).get(str(y))
+            if val is None:
+                bs_nulls.append(f"balance_sheet.{key}.{y}")
+    report["phase1_balance_sheet_nulls"] = bs_nulls
 
     # Phase 1 business model
     bm_nulls = _null_fields(phase1.get("business_model", {}), "business_model")

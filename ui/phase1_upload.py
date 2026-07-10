@@ -172,6 +172,50 @@ def render_phase1():
                 st.write(f"Gross Profit: {gp:,.2f} ({gp_margin:.1f}%)")
                 st.write(f"EBITDA: {ebitda:,.2f}")
                 
+        # 2a-2. Editable Balance Sheet Table (from AUDITED financial statements)
+        st.markdown("#### Balance Sheet (Audited FS)")
+        st.caption("Derived from audited financial statements only — not internal accounts. "
+                   "Feeds the FCF working-capital/CapEx lines, the SME tax-rate test, and the Equity Value bridge.")
+
+        bs_data = data.get('balance_sheet', {}) or {}
+        bs_rows = [
+            "Cash and cash equivalents", "Accounts receivable",
+            "Short-term loans receivable", "Inventories - net",
+            "Property, plant and equipment - net",
+            "Accounts payable", "Short-term loans",
+            "Other current liabilities", "Long-term loans",
+            "Issued and paid-up capital", "Retained earnings",
+        ]
+        bs_keys = [
+            "cash_and_equivalents", "accounts_receivable",
+            "short_term_loans_receivable", "inventories",
+            "ppe_net",
+            "accounts_payable", "short_term_loans",
+            "other_current_liabilities", "long_term_loans",
+            "paid_up_capital", "retained_earnings",
+        ]
+        bs_df_dict = {"Line Item": bs_rows}
+        for year in st.session_state.selected_years:
+            bs_df_dict[str(year)] = [bs_data.get(k, {}).get(str(year), 0.0) for k in bs_keys]
+
+        edited_bs_df = st.data_editor(
+            pd.DataFrame(bs_df_dict),
+            hide_index=True,
+            use_container_width=True,
+            key="bs_editor",
+            column_config={
+                str(y): st.column_config.NumberColumn(str(y), format="%.2f")
+                for y in st.session_state.selected_years
+            }
+        )
+        if 'balance_sheet' not in st.session_state.phase1_data:
+            st.session_state.phase1_data['balance_sheet'] = {}
+        for y in st.session_state.selected_years:
+            for i, k in enumerate(bs_keys):
+                if k not in st.session_state.phase1_data['balance_sheet']:
+                    st.session_state.phase1_data['balance_sheet'][k] = {}
+                st.session_state.phase1_data['balance_sheet'][k][str(y)] = edited_bs_df.loc[i, str(y)]
+
         # 2b. Extraction Breakdown Report
         st.markdown("---")
         report_col1, report_col2 = st.columns([3, 1])
