@@ -1,10 +1,14 @@
-streamlit
-google-genai
+# Pinned to the versions verified working locally (Python 3.9-3.12).
+# Unpinned deps on Streamlit Cloud's Python 3.14 caused a segfault at startup
+# (see logs 2026-07-10). Keep the app's Python version at 3.12.
+streamlit==1.50.0
+google-genai==1.47.0
 google-api-python-client
 google-auth-httplib2
 google-auth-oauthlib
-openpyxl
-PyMuPDF
-python-docx
-pandas
-yfinance
+openpyxl==3.1.5
+PyMuPDF==1.26.5
+python-docx==1.2.0
+pandas==2.3.3
+numpy==2.0.2
+yfinance==1.2.0
