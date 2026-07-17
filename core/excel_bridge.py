@@ -449,9 +449,22 @@ def inject_phase3_data(workbook, deep_dive, lseg_parsed_peers, selected_peers, d
             row = 18 + i
             ticker = peer.get('identifier')
             f = financials.get(ticker, {})
+            # Prefer actual LSEG fundamentals (already in millions) over the
+            # AI deep-dive estimates — but only when the export is THB, since
+            # the deep dive converts foreign peers to THB and LSEG does not.
+            lseg = _lseg_peer(lseg_by_ticker, ticker, peer.get('company_name'))
+            lseg_is_thb = (lseg.get('fundamentals_currency') or '').upper() == 'THB'
+            lseg_rev = lseg.get('revenue', {}) or {}
+            lseg_ebitda = lseg.get('ebitda', {}) or {}
             for year, rev_c, ebitda_c, margin_c in year_blocks:
-                rev = f.get(f'revenue_{year}')
-                ebitda = f.get(f'ebitda_{year}')
+                rev = ebitda = None
+                if lseg_is_thb:
+                    rev = lseg_rev.get(year)
+                    ebitda = lseg_ebitda.get(year)
+                if rev is None:
+                    rev = f.get(f'revenue_{year}')
+                if ebitda is None:
+                    ebitda = f.get(f'ebitda_{year}')
                 _force_write(sheet, f'{rev_c}{row}', rev)
                 _force_write(sheet, f'{ebitda_c}{row}', ebitda)
                 # Margin column feeds the Scale Discount premium (rows 33-36)

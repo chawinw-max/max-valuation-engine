@@ -31,16 +31,20 @@ def render_phase3():
             with st.spinner("Parsing LSEG files..."):
                 parsed_peers = []
                 failed_files = []
+                warned_files = []
                 for f in lseg_files:
                     f_bytes = f.read()
                     data = parse_lseg_peer_data(f_bytes, filename=f.name)
                     if "error" in data:
                         failed_files.append((f.name, data["error"]))
                     else:
+                        if data.get("warning"):
+                            warned_files.append((f.name, data["warning"]))
                         parsed_peers.append(data)
 
                 st.session_state.lseg_parsed_peers = parsed_peers
                 st.session_state.lseg_failed_files = failed_files
+                st.session_state.lseg_warned_files = warned_files
 
                 if failed_files:
                     st.error(
@@ -52,6 +56,10 @@ def render_phase3():
                 else:
                     st.success(f"Parsed all {len(parsed_peers)} peer files.")
                 st.rerun()
+
+    # Persistent warnings for files missing the Valuation sheet
+    for name, warn in st.session_state.get("lseg_warned_files", []):
+        st.warning(f"**{name}**: {warn}")
 
     if "lseg_parsed_peers" in st.session_state:
         st.write("Parsed Data Check:")
