@@ -164,12 +164,17 @@ def render_phase1():
                 sales_exp = edited_df.loc[3, str(y)] or 0
                 admin_exp = edited_df.loc[4, str(y)] or 0
                 other_exp = edited_df.loc[5, str(y)] or 0
+                da = edited_df.loc[6, str(y)] or 0
                 opex = sales_exp + admin_exp + other_exp
-                
-                ebitda = gp - opex
-                
+
+                # EBIT-first waterfall (matches the template): opex includes
+                # D&A as reported; EBITDA = EBIT + D&A add-back.
+                ebit = gp - opex
+                ebitda = ebit + da
+
                 st.write(f"Total Revenue: {total_rev:,.2f}")
                 st.write(f"Gross Profit: {gp:,.2f} ({gp_margin:.1f}%)")
+                st.write(f"EBIT: {ebit:,.2f}")
                 st.write(f"EBITDA: {ebitda:,.2f}")
                 
         # 2a-2. Editable Balance Sheet Table (from AUDITED financial statements)

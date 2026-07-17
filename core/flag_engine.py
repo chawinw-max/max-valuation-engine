@@ -122,11 +122,14 @@ def get_phase1_flags(phase1_data: dict, available_years: list) -> List[Flag]:
             return 0 if _is_null(v) else (v or 0)
         total_rev = gv("sales_and_services") + gv("other_revenues")
         if total_rev > 0:
+            # EBIT-first waterfall: opex includes D&A as reported;
+            # EBITDA = EBIT + D&A add-back.
             ebitda = (total_rev
                       - gv("cost_of_goods_sold")
                       - gv("sales_expenses")
                       - gv("administrative_expenses")
-                      - gv("other_expenses"))
+                      - gv("other_expenses")
+                      + gv("depreciation_amortization"))
             if ebitda < 0:
                 flags.append(Flag(
                     FlagLevel.ERROR, f"NEGATIVE_EBITDA_{year}",

@@ -204,31 +204,32 @@ def extract_financials_and_business_model(company_files, financial_files, availa
     Example: If COGS is shown as (50,000) or -50,000 in the source, extract as 50000.
 
     CRITICAL EXTRACTION RULES:
-    1. SANITY CHECK — After extraction, mentally verify for each year:
+    1. SANITY CHECK — After extraction, mentally verify for each year using the
+       template's EBIT-FIRST waterfall:
        - Gross Profit = Revenue − COGS → should be positive for a viable business
-       - EBITDA = Gross Profit − OpEx → check this is reasonable (typically 5–30% of revenue)
-       - If your extracted numbers produce negative EBITDA or >90% gross margin, re-read the source
+       - EBIT = Gross Profit − (Sales + Admin + Other Expenses) → must match the
+         source's operating profit / EBIT if the source states one
+       - EBITDA = EBIT + D&A → check this is reasonable (typically 5–30% of revenue)
+       - If your extracted numbers produce nonsensical EBITDA or >90% gross margin,
+         re-read the source
     2. COGS vs GROSS PROFIT — Some Thai P&L statements show กำไรขั้นต้น (Gross Profit) directly
        instead of ต้นทุนขาย (COGS). If only Gross Profit is shown, BACK-CALCULATE:
        cost_of_goods_sold = Total Revenue − Gross Profit
        IMPORTANT: Mark in _verification that COGS was "derived" (not directly extracted).
-    3. D&A PLACEMENT — D&A goes in Row 26 (below EBITDA, above EBIT), NOT inside admin expenses.
-       If the source buries D&A inside admin or operating expenses, you must SEPARATE it:
-       - Extract the D&A amount into depreciation_amortization
-       - Subtract that amount from administrative_expenses to avoid double-counting
-       If D&A cannot be separated (not disclosed), set depreciation_amortization = null
-
-       ⚠️  CRITICAL D&A + DERIVED COGS INTERACTION:
-       If COGS was derived using Rule #2 (back-calculated from Gross Profit), the derived
-       COGS already embeds any D&A that the source included in its Cost of Sales (e.g.,
-       ค่าเสื่อมราคา-เครื่องมือทันตกรรม from Note 10). You CANNOT separate that D&A out of
-       the derived COGS because the derivation was: COGS = Revenue − Gross Profit.
-       In this situation:
-       - Still separate D&A from administrative_expenses (subtract from admin, add to D&A)
-       - Do NOT add COGS-embedded D&A to the depreciation_amortization line
-       - The depreciation_amortization value should ONLY contain D&A extracted from admin/opex
-       - If no D&A can be separated from admin, set depreciation_amortization = null
-       - Note in _verification which D&A components are embedded vs separated
+    3. D&A PLACEMENT — the template is EBIT-FIRST: EBIT (row 24) = Gross Profit − OpEx,
+       and EBITDA (row 28) = EBIT + D&A (row 27). This means:
+       - COGS and the three OpEx lines must be extracted AS REPORTED — with any D&A the
+         source includes in them LEFT EMBEDDED. Do NOT subtract D&A out of COGS or
+         administrative_expenses. The sum of your expense lines must reproduce the
+         source's operating profit / EBIT exactly.
+       - depreciation_amortization (row 27) is a memo ADD-BACK line, NOT an additional
+         expense. Extract the company's TOTAL D&A (from the P&L, the fixed-asset note,
+         or the cash flow statement) so the template can compute EBITDA = EBIT + D&A.
+       - If total D&A is not disclosed anywhere, set depreciation_amortization = null
+         and flag it in _verification.notes — do NOT estimate it.
+       - If the source itself reports EBITDA and D&A (e.g., a consolidation file with
+         an explicit "Add: D&A" line), use those figures directly and verify
+         EBIT + D&A = source EBITDA.
     4. COMBINED SG&A — If the source combines Selling + Admin into one line:
        - Put the full amount in administrative_expenses
        - Set sales_expenses = 0
@@ -284,7 +285,9 @@ def extract_financials_and_business_model(company_files, financial_files, availa
         a) Find the source document's stated Net Profit (กำไรสุทธิ / กำไรหลังหักค่าใช้จ่าย)
            or Gross Profit (กำไรขั้นต้น) if available.
         b) Compute: Implied Expenses = Revenue − Source Net Profit
-        c) Compare against: Extracted Expenses = COGS + Sales + Admin + Other + D&A + Interest + Tax
+        c) Compare against: Extracted Expenses = COGS + Sales + Admin + Other + Interest + Tax
+           (do NOT add depreciation_amortization — it is an EBITDA add-back memo line,
+           already embedded inside COGS/OpEx, not an additional expense)
         d) If the gap exceeds 2%% of revenue, you have a double-counting or misclassification error.
            Re-examine which line items overlap and fix before returning.
         Report the source-stated figures in the _verification field (see schema).
@@ -449,43 +452,30 @@ def _post_process_financials(result: dict, available_years: list):
             if gross_margin > 0.95 and cogs < total_rev * 0.5:
                 fin['cost_of_goods_sold'][y] = total_rev - cogs
 
-        # 3. Cross-validate total expenses against source net profit
+        # 3. Cross-validate total expenses against source net profit.
+        # The template is EBIT-first: OpEx lines carry D&A embedded as
+        # reported, and depreciation_amortization is an EBITDA add-back memo
+        # line — so it is EXCLUDED from the Revenue→Net Profit expense chain.
         snp = source_np.get(y)
         if snp is not None and total_rev > 0:
             implied_total_expenses = total_rev - snp
+            chain_keys = [
+                'cost_of_goods_sold', 'sales_expenses',
+                'administrative_expenses', 'other_expenses',
+                'interest_expenses', 'tax',
+            ]
             extracted_total = sum(
-                (fin.get(k) or {}).get(y) or 0 for k in expense_keys
+                (fin.get(k) or {}).get(y) or 0 for k in chain_keys
             )
-            # Also add tax
-            extracted_total += (fin.get('tax') or {}).get(y) or 0
 
             gap = extracted_total - implied_total_expenses
             gap_pct = abs(gap) / total_rev * 100
 
-            # Check if the gap is explained by D&A (EBIT-first P&L format).
-            # Some source P&Ls compute EBIT first (GP − SG&A) and only use D&A
-            # as an add-back for EBITDA — D&A never appears in the
-            # Revenue→Net Profit expense chain.  In that case the gap will
-            # match D&A almost exactly and is NOT double-counting.
-            da_val = (fin.get('depreciation_amortization') or {}).get(y) or 0
-            gap_explained_by_da = (
-                da_val > 0
-                and abs(gap - da_val) / total_rev < 0.005  # within 0.5% of revenue
-            )
-
-            if gap_explained_by_da:
-                # Not an error — just a structural difference.  Leave a note
-                # so the analyst knows, but don't flag it as an issue.
+            if gap_pct > 2:
                 warnings.append(
-                    f"{y}: Source P&L uses EBIT-first format — D&A ({da_val:,.0f}) is an "
-                    f"EBITDA add-back, not a direct expense line.  Cross-check OK after "
-                    f"accounting for structure."
-                )
-            elif gap_pct > 2:
-                warnings.append(
-                    f"{y}: Extracted expenses ({extracted_total:,.0f}) exceed implied expenses "
-                    f"({implied_total_expenses:,.0f}) by {gap:,.0f} THB ({gap_pct:.1f}% of revenue). "
-                    f"Likely double-counting or misclassification."
+                    f"{y}: Extracted expenses ({extracted_total:,.0f}) vs implied expenses "
+                    f"({implied_total_expenses:,.0f}) differ by {gap:,.0f} THB ({gap_pct:.1f}% of revenue). "
+                    f"Likely double-counting, misclassification, or missing interest/tax."
                 )
 
     if warnings:
@@ -529,7 +519,9 @@ def _compute_target_metrics(financials: dict, available_years: list) -> dict:
 
     total_rev = sales + other_rev
     gross_profit = total_rev - cogs
-    ebitda = gross_profit - s_exp - admin - o_exp
+    # EBIT-first waterfall: opex includes D&A as reported; add D&A back.
+    da = _get_val('depreciation_amortization', latest)
+    ebitda = gross_profit - s_exp - admin - o_exp + da
 
     metrics = {
         'latest_year': int(sorted_years[-1]),

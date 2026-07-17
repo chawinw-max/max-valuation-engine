@@ -402,8 +402,10 @@ def _compute_metrics(financials, available_years):
         total_rev = sales + other
         gp        = total_rev - cogs
         opex      = s_exp + admin + o_exp
-        ebitda    = gp - opex
-        ebit      = ebitda - da
+        # EBIT-first waterfall (matches the template): opex includes D&A as
+        # reported; D&A is an add-back to get EBITDA, not an extra expense.
+        ebit      = gp - opex
+        ebitda    = ebit + da
         pbt       = ebit - interest
         net_profit = pbt - tax
 
